@@ -83,15 +83,32 @@ function StickerEditor({ onOpenLibrary }: { onOpenLibrary: () => void }) {
     color: string;
     blob: Blob;
   } | null>(null);
+  const [lastPreview, setLastPreview] = useState<{
+    file: File;
+    mask: CutoutMask | null;
+    blob: Blob;
+  } | null>(null);
 
   const appliedMask = mode === "cutout" ? mask : null;
   const ready = Boolean(info && (mode === "original" || appliedMask));
   const result = ready && rendered?.file === file && rendered?.mask === appliedMask
     && rendered.width === width && rendered.color === color ? rendered.blob : null;
+  // While a new outline is rendering, keep showing the previous render of the
+  // same source instead of falling back to the untouched original image.
+  const stickyPreview = lastPreview?.file === file && lastPreview.mask === appliedMask
+    ? lastPreview.blob
+    : null;
   const originalUrl = useObjectUrl(file);
   const resultUrl = useObjectUrl(result === file ? null : result);
-  const shownUrl = preview === "原图" || result === file ? originalUrl : resultUrl ?? originalUrl;
+  const stickyUrl = useObjectUrl(stickyPreview);
+  const shownUrl = preview === "原图" || result === file
+    ? originalUrl
+    : resultUrl ?? stickyUrl ?? originalUrl;
   const alreadySaved = Boolean(result) && saved.blob === result && saved.name === name.trim();
+
+  useEffect(() => {
+    if (result && file) setLastPreview({ file, mask: appliedMask, blob: result });
+  }, [appliedMask, file, result]);
 
   const getProcessor = () => (processor.current ??= new StickerProcessor());
   const stopWork = () => {
@@ -238,7 +255,7 @@ function StickerEditor({ onOpenLibrary }: { onOpenLibrary: () => void }) {
   };
 
   return (
-    <div className="grid min-h-0 gap-3.5 min-[900px]:grid-cols-[minmax(0,1.38fr)_minmax(260px,1fr)]">
+    <div className="grid h-full min-h-0 gap-3.5 min-[900px]:grid-cols-[minmax(0,1.38fr)_minmax(260px,1fr)]">
       <input
         ref={picker}
         type="file"
@@ -264,7 +281,7 @@ function StickerEditor({ onOpenLibrary }: { onOpenLibrary: () => void }) {
           if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false);
         }}
         onDrop={drop}
-        className="glass flex min-h-[320px] min-w-0 flex-col gap-2.5 rounded-[25px] p-3 shadow-soft"
+        className="glass flex h-full min-h-[360px] min-w-0 flex-col gap-3 rounded-[25px] p-3.5 shadow-soft"
       >
         <div className="flex items-center justify-between gap-2">
           {file ? (
@@ -280,7 +297,7 @@ function StickerEditor({ onOpenLibrary }: { onOpenLibrary: () => void }) {
         </div>
 
         <div className={cn(
-          "sticker-editor-checker relative grid min-h-[224px] flex-1 place-items-center overflow-hidden rounded-[17px] border border-[#e2ebf7]",
+          "sticker-editor-checker relative grid min-h-[260px] flex-1 place-items-center overflow-hidden rounded-[19px] border border-[#e2ebf7]",
           dragging && "ring-2 ring-inset ring-[#76aaf0]",
         )}>
           {file && shownUrl ? (
@@ -288,7 +305,7 @@ function StickerEditor({ onOpenLibrary }: { onOpenLibrary: () => void }) {
               src={shownUrl}
               draggable={false}
               alt={preview === "原图" ? "上传的原图" : "贴纸效果预览"}
-              className="absolute inset-0 m-auto h-[86%] max-h-[300px] w-[86%] object-contain"
+              className="absolute inset-0 m-auto h-[90%] w-[90%] object-contain"
             />
           ) : (
             <button
@@ -327,9 +344,9 @@ function StickerEditor({ onOpenLibrary }: { onOpenLibrary: () => void }) {
         </div>
       </section>
 
-      <section aria-label="贴纸设置" className="glass flex min-w-0 flex-col gap-2.5 rounded-[25px] p-3 shadow-soft">
-        <fieldset disabled={!file || saving} className="space-y-1.5 disabled:opacity-55">
-          <legend className="mb-1 text-[13px] font-bold text-ink">图片处理</legend>
+      <section aria-label="贴纸设置" className="glass flex h-full min-w-0 flex-col gap-4 rounded-[25px] p-4 shadow-soft">
+        <fieldset disabled={!file || saving} className="space-y-2 disabled:opacity-55">
+          <legend className="mb-1.5 text-[13px] font-bold text-ink">图片处理</legend>
           <div className="grid grid-cols-2 gap-1.5 rounded-xl border border-[#e3edf9] bg-[#edf4fd] p-1">
             {([
               { key: "cutout", label: "自动抠图", icon: ScanLine },
@@ -354,15 +371,10 @@ function StickerEditor({ onOpenLibrary }: { onOpenLibrary: () => void }) {
               ? mask ? "背景已移除。可对照原图检查效果。" : "模型在本机运行，首次使用会下载模型。"
               : info?.transparent ? "已检测到透明背景，可以直接保存或添加描边。" : "保留上传图片，用原图制作贴纸。"}
           </p>
-          {file && mode === "cutout" && !mask && (
-            <button type="button" className={secondaryButton} disabled={Boolean(status)} onClick={() => void runCutout()}>
-              <ScanLine className="size-3.5" aria-hidden /> {problem ? "重试自动抠图" : "开始抠图"}
-            </button>
-          )}
         </fieldset>
 
-        <fieldset disabled={!file || saving} className="space-y-1.5 disabled:opacity-55">
-          <legend className="mb-1 w-full text-[13px] font-bold text-ink">
+        <fieldset disabled={!file || saving} className="space-y-2.5 disabled:opacity-55">
+          <legend className="mb-1.5 w-full text-[13px] font-bold text-ink">
             <span className="flex items-center justify-between gap-2">
               描边
               <output className="text-[11px] font-semibold tabular-nums text-ink-soft">
@@ -399,7 +411,7 @@ function StickerEditor({ onOpenLibrary }: { onOpenLibrary: () => void }) {
           </div>
         </fieldset>
 
-        <label className="grid gap-1 text-[13px] font-bold text-ink">
+        <label className="grid gap-1.5 text-[13px] font-bold text-ink">
           贴纸名称
           <Input
             value={name}
@@ -407,27 +419,39 @@ function StickerEditor({ onOpenLibrary }: { onOpenLibrary: () => void }) {
             maxLength={60}
             onChange={(event) => setName(event.target.value)}
             placeholder="给贴纸起个名字"
-            className="h-8 rounded-xl border-[#dce7f5] bg-white/80 text-[12px]"
+            className="h-9 rounded-xl border-[#dce7f5] bg-white/80 text-[12px]"
           />
         </label>
 
-        <div className="mt-auto space-y-1.5 pt-0.5">
+        <div className="mt-auto space-y-2 pt-1">
           {(problem || previewProblem) && (
             <p role="alert" className="rounded-xl bg-[#fff0ed] px-2.5 py-2 text-[11px] leading-relaxed text-[#a43a42]">{problem || previewProblem}</p>
           )}
           {ready && !result && !previewProblem && (
             <p role="status" className="text-[11px] text-ink-soft">正在更新贴纸效果…</p>
           )}
-          {alreadySaved ? (
-            <button type="button" className={cn(secondaryButton, "w-full")} onClick={onOpenLibrary}>
-              <Check className="size-4" aria-hidden /> 已保存 · 查看我的贴纸 <ArrowRight className="size-3.5" aria-hidden />
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              className={cn(secondaryButton, "w-full")}
+              disabled={!file || saving || Boolean(status) || mode !== "cutout"}
+              title={mode !== "cutout" ? "切换到自动抠图后可用" : undefined}
+              onClick={() => void runCutout()}
+            >
+              <ScanLine className="size-3.5" aria-hidden />
+              {mask ? "重新抠图" : "开始抠图"}
             </button>
-          ) : (
-            <button type="button" className={cn(primaryButton, "w-full")} onClick={() => void save()} disabled={!result || !name.trim() || saving}>
-              {saving ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : <Check className="size-4" aria-hidden />}
-              {saving ? "正在保存…" : "保存到我的贴纸"}
-            </button>
-          )}
+            {alreadySaved ? (
+              <button type="button" className={cn(secondaryButton, "w-full")} onClick={onOpenLibrary}>
+                <Check className="size-4" aria-hidden /> 查看我的贴纸 <ArrowRight className="size-3.5" aria-hidden />
+              </button>
+            ) : (
+              <button type="button" className={cn(primaryButton, "w-full")} onClick={() => void save()} disabled={!result || !name.trim() || saving}>
+                {saving ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : <Check className="size-4" aria-hidden />}
+                {saving ? "正在保存…" : "保存到我的贴纸"}
+              </button>
+            )}
+          </div>
         </div>
       </section>
     </div>
@@ -475,15 +499,15 @@ function AiStickerForm() {
 export function CreateStickerPage({ onOpenLibrary }: { onOpenLibrary: () => void }) {
   const [tab, setTab] = useState<(typeof TABS)[number]>("贴纸制作");
   return (
-    <div className="h-full overflow-y-auto px-0.5 pb-4">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden px-0.5 pb-4">
       <header className="flex flex-wrap items-center justify-between gap-2 pb-4 pt-2.5">
         <h2 className="font-display text-[22px] font-semibold tracking-tight text-ink">创建贴纸</h2>
         <Segmented options={TABS} value={tab} onChange={setTab} className="min-w-[174px]" />
       </header>
-      <div hidden={tab !== "贴纸制作"}>
+      <div hidden={tab !== "贴纸制作"} className="min-h-0 flex-1">
         <StickerEditor onOpenLibrary={onOpenLibrary} />
       </div>
-      <div hidden={tab !== "AI 生成"}>
+      <div hidden={tab !== "AI 生成"} className="min-h-0 flex-1 overflow-y-auto">
         <AiStickerForm />
       </div>
     </div>
