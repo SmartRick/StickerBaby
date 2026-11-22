@@ -30,7 +30,7 @@
 - `usePetHitRects`：测量 `[data-pet-hit]`、`[data-pet-visual]`、Radix 菜单；跳过 `[data-pet-passthrough="true"]` 里面的元素。**锁定贴纸的视觉仍在 DOM 里，只是不参与命中。**
 - 解锁按钮是独立的 `data-pet-hit`，鼠标移上去时窗口会变可点，所以能点击。
 - 拖动时前端调用 `set_overlay_dragging` → `hit_test::set_pinned(true)`；松手后延迟恢复。
-- 取消置顶：`set_always_on_top(false)` + `set_always_on_bottom(true)`（Tauri 原生方法）。这是参考项目的桌面层做法，不靠 `SetParent(Progman)`。
+- 取消置顶：`set_always_on_top(false)` + `set_always_on_bottom(true)`（Tauri 原生方法）。Windows 桌面层用 `.focusable(false)` 接收鼠标事件，并保持 Explorer 的前台位置。原生轮询用 `GetAsyncKeyState` 检测菜单外的鼠标按下，补发 `overlay:blur` 收起菜单。
 - 置顶：`set_always_on_bottom(false)` + `set_always_on_top(true)` + `SetWindowPos(HWND_TOPMOST, NOACTIVATE)`。
 
 ## 已验证
@@ -60,4 +60,5 @@
 - 命中目标在 DOM 结构或锁定状态变化时重建，运动期间约 30 Hz 采样并上报整像素几何。全局锁定和隐藏时发送空命中集。不要让命中轮询重新依赖每次 React 提交。
 - 在开启调试端口的 native dev 进程中，可用 Playwright CDP 接入 9222，通过临时拦截 store 模块给桌面 WebView 注入隔离测试配置。对活动用户窗口做验证时保留原存储和广播频道。Windows WebView2 用 Long Animation Frames 记录到运动时每约 900ms 的坐标提交和 139–245ms 的长帧重合。移除定时提交后，六张 Rive 同播加太空抛掷的 7 秒复测未出现长帧，移动约 60 次/秒。浏览器 rAF 次数不能作为贴纸移动 FPS。
 
-- 画面尺寸与碰撞体共用 getPetSize。物理拖拽先夹紧抓取目标，步进后用旋转画框外接范围防止穿墙。悬浮拖动和右键缩放共用相同边界公式。
+- 画面尺寸与碰撞体共用 `getPetSize`。从贴纸 Alpha 采样生成复合碰撞体，各块按 `object-fit: contain` 定位。贴纸落地、悬浮拖动和缩放共用可见轮廓的屏幕边界，Rive 使用海报图轮廓。
+- Windows 复测桌面层时，先单击桌面空白让 Explorer 处于前台。使用带 `CAPTUREBLT` 的屏幕截图比较按下前、按住和松开后的贴纸像素。GetPixel 直接采屏和 CDP 页面截图无法单独验证分层窗口的桌面合成。悬浮、重力、太空均已实测两层右键缩放。

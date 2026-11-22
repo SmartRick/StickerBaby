@@ -1,5 +1,11 @@
 import Matter from "matter-js";
-import { clampPetAxis, getPetSize, petHalfExtent } from "@/lib/pet-size";
+import { getPetSize } from "@/lib/pet-size";
+import {
+  BOX_SILHOUETTE,
+  fitStickerCenter,
+  stickerBounds,
+  type StickerSilhouette,
+} from "@/lib/sticker-silhouette";
 import type { PetInstance, Settings, StickerMode } from "@/lib/store";
 
 export type PhysicsMode = Exclude<StickerMode, "float">;
@@ -8,6 +14,20 @@ export interface PhysicsPosition {
   x: number;
   y: number;
   angle: number;
+}
+
+export interface PhysicsGeometry {
+  silhouette: StickerSilhouette;
+  previewScale?: number;
+}
+
+interface PhysicsSticker {
+  body: Matter.Body;
+  size: number;
+  flipped: boolean;
+  silhouette: StickerSilhouette;
+  /** Local vector from the center of the image to the center of mass. */
+  offset: Matter.Vector;
 }
 
 type PhysicsTuning = Pick<Settings,
@@ -41,10 +61,8 @@ function bounded(value: number, min: number, max: number) {
 export class StickerPhysics {
   private engine: Matter.Engine;
   private world: Matter.World;
-  private dynamic = new Map<string, Matter.Body>();
-  private statics = new Map<string, Matter.Body>();
-  private sizes = new Map<string, number>();
-  private staticSizes = new Map<string, number>();
+  private dynamic = new Map<string, PhysicsSticker>();
+  private statics = new Map<string, PhysicsSticker>();
   private walls: Matter.Body[] = [];
   private constraint: Matter.Constraint | null = null;
   private draggedId: string | null = null;
@@ -118,21 +136,25 @@ export class StickerPhysics {
     this.bounce = bounce;
     this.petCollisions = tuning.petCollisions;
     for (const wall of this.walls) wall.restitution = Math.min(1, 0.55 * bounce);
-    for (const body of this.statics.values()) this.tuneBody(body);
-    for (const body of this.dynamic.values()) {
-      this.tuneBody(body);
+    for (const sticker of this.statics.values()) this.tuneBody(sticker);
+    for (const sticker of this.dynamic.values()) {
+      this.tuneBody(sticker);
+      const { body } = sticker;
       if (wake) Matter.Sleeping.set(body, false);
     }
     if (this.constraint) this.constraint.stiffness = this.dragStiffness();
     if (wake) this.active = true;
   }
 
-  private tuneBody(body: Matter.Body) {
+  private tuneBody({ body, silhouette }: PhysicsSticker) {
     const gravity = this.options.mode === "gravity";
-    body.collisionFilter.mask = this.petCollisions ? WALL | PET : WALL;
+    body.collisionFilter.mask = silhouette.parts.length ? (this.petCollisions ? WALL | PET : WALL) : 0;
     body.restitution = Math.min(1, (gravity ? 0.34 : 0.68) * this.bounce);
     body.frictionAir = gravity ? 0.008 : 0.0012 / this.inertia;
-    if (!body.isStatic) Matter.Body.setDensity(body, 0.0012 * this.weight);
+    if (!body.isStatic) {
+      Matter.Body.setDensity(body, 0.0012 * this.weight);
+      if (!this.options.tumble) Matter.Body.setInertia(body, Infinity);
+    }
   }
 
   private dragStiffness() {
@@ -140,7 +162,7 @@ export class StickerPhysics {
   }
 
   private wake() {
-    for (const body of this.dynamic.values()) Matter.Sleeping.set(body, false);
+    for (const { body } of this.dynamic.values()) Matter.Sleeping.set(body, false);
     this.active = true;
   }
 
@@ -148,46 +170,67 @@ export class StickerPhysics {
     return this.active && this.dynamic.size > 0;
   }
 
-  private bodySize(pet: PetInstance): number {
-    const { globalScale, width, height } = this.options;
-    return getPetSize(globalScale, pet.scale, width, height);
-  }
-
-  private createBody(pet: PetInstance, size: number, isStatic: boolean): Matter.Body {
-    const angle = isStatic || this.options.tumble ? pet.angle ?? 0 : 0;
-    const { x, y } = this.fit(pet.x * this.options.width, pet.y * this.options.height, size, angle);
-    const body = Matter.Bodies.rectangle(x, y, size, size, {
-      isStatic,
+  private createSticker(pet: PetInstance, size: number, silhouette: StickerSilhouette, isStatic: boolean, pose: PhysicsPosition) {
+    const flipped = Boolean(pet.flipped);
+    const options = {
       collisionFilter: { category: PET },
       friction: 0.06,
       frictionStatic: 0.4,
-      angle,
       sleepThreshold: 45,
       label: `pet:${pet.id}`,
+    } satisfies Matter.IBodyDefinition;
+    const parts = silhouette.parts.map(({ left, top, right, bottom }) =>
+      Matter.Bodies.rectangle(
+        (left + right) / 2 * size * (flipped ? -1 : 1),
+        (top + bottom) / 2 * size,
+        (right - left) * size,
+        (bottom - top) * size,
+        silhouette.parts.length === 1 ? options : undefined,
+      )
+    );
+    const body = parts.length > 1
+      ? Matter.Body.create({ ...options, parts })
+      : parts[0] ?? Matter.Bodies.rectangle(0, 0, 1, 1, options);
+    const offset = Matter.Vector.mult(body.position, 1 / size);
+    const sticker = { body, offset, size, flipped, silhouette };
+    this.place(sticker, pose);
+    if (isStatic) Matter.Body.setStatic(body, true);
+    this.tuneBody(sticker);
+    return sticker;
+  }
+
+  private fit(sticker: PhysicsSticker, x: number, y: number, angle: number) {
+    const { size, silhouette, flipped } = sticker;
+    const { width, height } = this.options;
+    return fitStickerCenter(x, y, size, stickerBounds(silhouette, angle, flipped), width, height);
+  }
+
+  private imagePosition({ body, offset, size }: PhysicsSticker): PhysicsPosition {
+    const center = Matter.Vector.rotate(offset, body.angle);
+    return { x: body.position.x - center.x * size, y: body.position.y - center.y * size, angle: body.angle };
+  }
+
+  private place(sticker: PhysicsSticker, { x, y, angle }: PhysicsPosition) {
+    const fitted = this.fit(sticker, x, y, angle);
+    const offset = Matter.Vector.rotate(sticker.offset, angle);
+    Matter.Body.setAngle(sticker.body, angle);
+    Matter.Body.setPosition(sticker.body, {
+      x: fitted.x + offset.x * sticker.size,
+      y: fitted.y + offset.y * sticker.size,
     });
-    if (!this.options.tumble && !isStatic) Matter.Body.setInertia(body, Infinity);
-    this.tuneBody(body);
-    return body;
   }
 
-  private fit(x: number, y: number, size: number, angle: number) {
-    const extent = petHalfExtent(size, angle);
-    return {
-      x: clampPetAxis(x, extent, this.options.width),
-      y: clampPetAxis(y, extent, this.options.height),
-    };
-  }
-
-  private keepInside(body: Matter.Body, size: number) {
+  private keepInside(sticker: PhysicsSticker) {
     // A solver step can let fast motion or collision slop pass the wall.
-    const old = body.position;
-    const { x, y } = this.fit(old.x, old.y, size, body.angle);
+    const { body } = sticker;
+    const old = this.imagePosition(sticker);
+    const { x, y } = this.fit(sticker, old.x, old.y, old.angle);
     const dx = x - old.x;
     const dy = y - old.y;
     if (dx === 0 && dy === 0) return;
 
     const velocity = Matter.Body.getVelocity(body);
-    Matter.Body.setPosition(body, { x, y });
+    Matter.Body.translate(body, { x: dx, y: dy });
     if (dx * velocity.x < 0 || dy * velocity.y < 0) {
       Matter.Body.setVelocity(body, {
         x: dx * velocity.x < 0 ? 0 : velocity.x,
@@ -196,74 +239,60 @@ export class StickerPhysics {
     }
   }
 
-  sync(pets: PetInstance[], lockedPets: PetInstance[]) {
+  sync(pets: PetInstance[], lockedPets: PetInstance[], geometries: ReadonlyMap<string, PhysicsGeometry>) {
     let obstaclesChanged = false;
-    const dynamicIds = new Set(pets.map((pet) => pet.id));
-    for (const [id, body] of this.dynamic) {
-      if (!dynamicIds.has(id)) {
-        if (this.draggedId === id) {
+    const { globalScale, width, height, tumble } = this.options;
+    const syncBodies = (instances: PetInstance[], bodies: Map<string, PhysicsSticker>, isStatic: boolean) => {
+      const ids = new Set(instances.map((pet) => pet.id));
+      for (const [id, { body }] of bodies) {
+        if (ids.has(id)) continue;
+        if (!isStatic && this.draggedId === id) {
           this.removeConstraint();
           this.draggedId = null;
         }
-        obstaclesChanged = true;
         Matter.Composite.remove(this.world, body);
-        this.dynamic.delete(id);
-        this.sizes.delete(id);
-      }
-    }
-
-    const staticIds = new Set(lockedPets.map((pet) => pet.id));
-    for (const [id, body] of this.statics) {
-      if (!staticIds.has(id)) {
-        Matter.Composite.remove(this.world, body);
-        this.statics.delete(id);
-        this.staticSizes.delete(id);
+        bodies.delete(id);
         obstaclesChanged = true;
       }
-    }
-
-    for (const pet of lockedPets) {
-      const size = this.bodySize(pet);
-      const existing = this.statics.get(pet.id);
-      if (!existing || this.staticSizes.get(pet.id) !== size) {
-        if (existing) Matter.Composite.remove(this.world, existing);
-        const body = this.createBody(pet, size, true);
-        this.statics.set(pet.id, body);
-        this.staticSizes.set(pet.id, size);
-        Matter.Composite.add(this.world, body);
-        obstaclesChanged = true;
-      } else {
-        const angle = pet.angle ?? 0;
-        const { x, y } = this.fit(pet.x * this.options.width, pet.y * this.options.height, size, angle);
-        if (x !== existing.position.x || y !== existing.position.y || angle !== existing.angle) {
-          Matter.Body.setAngle(existing, angle);
-          Matter.Body.setPosition(existing, { x, y });
+      for (const pet of instances) {
+        const geometry = geometries.get(pet.id);
+        const size = getPetSize(globalScale, geometry?.previewScale ?? pet.scale, width, height);
+        const silhouette = geometry?.silhouette ?? BOX_SILHOUETTE;
+        const existing = bodies.get(pet.id);
+        const initial = { x: pet.x * width, y: pet.y * height, angle: isStatic || tumble ? pet.angle ?? 0 : 0 };
+        const live = existing && !isStatic ? this.imagePosition(existing) : initial;
+        if (!existing || existing.silhouette !== silhouette || existing.flipped !== Boolean(pet.flipped) || (isStatic && existing.size !== size)) {
+          const sticker = this.createSticker(pet, size, silhouette, isStatic, live);
+          if (existing) {
+            Matter.Composite.remove(this.world, existing.body);
+            if (!isStatic) {
+              Matter.Body.setVelocity(sticker.body, Matter.Body.getVelocity(existing.body));
+              Matter.Body.setAngularVelocity(sticker.body, Matter.Body.getAngularVelocity(existing.body));
+              if (this.draggedId === pet.id) this.attachConstraint(sticker);
+            }
+          }
+          bodies.set(pet.id, sticker);
+          Matter.Composite.add(this.world, sticker.body);
           obstaclesChanged = true;
+        } else if (existing.size !== size) {
+          const ratio = size / existing.size;
+          Matter.Body.scale(existing.body, ratio, ratio);
+          existing.size = size;
+          this.tuneBody(existing);
+          this.place(existing, live);
+          obstaclesChanged = true;
+        } else if (isStatic) {
+          const previous = this.imagePosition(existing);
+          const fitted = this.fit(existing, live.x, live.y, live.angle);
+          if (Math.abs(fitted.x - previous.x) > 0.001 || Math.abs(fitted.y - previous.y) > 0.001 || live.angle !== previous.angle) {
+            this.place(existing, live);
+            obstaclesChanged = true;
+          }
         }
       }
-    }
-
-    for (const pet of pets) {
-      const size = this.bodySize(pet);
-      const existing = this.dynamic.get(pet.id);
-      if (existing) {
-        const previousSize = this.sizes.get(pet.id) ?? size;
-        if (previousSize !== size) {
-          const ratio = size / previousSize;
-          Matter.Body.scale(existing, ratio, ratio);
-          if (!this.options.tumble) Matter.Body.setInertia(existing, Infinity);
-          this.keepInside(existing, size);
-          this.sizes.set(pet.id, size);
-          obstaclesChanged = true;
-        }
-        continue;
-      }
-      const body = this.createBody(pet, size, false);
-      this.dynamic.set(pet.id, body);
-      this.sizes.set(pet.id, size);
-      Matter.Composite.add(this.world, body);
-      this.active = true;
-    }
+    };
+    syncBodies(pets, this.dynamic, false);
+    syncBodies(lockedPets, this.statics, true);
     if (obstaclesChanged) this.wake();
   }
 
@@ -272,53 +301,52 @@ export class StickerPhysics {
     Matter.Engine.update(this.engine, deltaMs);
     if (this.constraint?.bodyB?.isSleeping) Matter.Sleeping.set(this.constraint.bodyB, false);
     this.active = Boolean(this.constraint);
-    for (const [id, body] of this.dynamic) {
+    for (const sticker of this.dynamic.values()) {
+      const { body } = sticker;
       if (body.isSleeping) continue;
       if (!this.options.tumble) {
         if (body.angle !== 0) Matter.Body.setAngle(body, 0);
         if (body.angularVelocity !== 0) Matter.Body.setAngularVelocity(body, 0);
       }
-      this.keepInside(body, this.sizes.get(id)!);
+      this.keepInside(sticker);
       this.active = true;
     }
   }
 
   forEachPosition(visit: (id: string, x: number, y: number, angle: number) => void) {
-    for (const [id, body] of this.dynamic) {
-      visit(id, body.position.x, body.position.y, body.angle);
+    for (const [id, sticker] of this.dynamic) {
+      const { x, y, angle } = this.imagePosition(sticker);
+      visit(id, x, y, angle);
     }
   }
 
   position(id: string): PhysicsPosition | undefined {
-    const body = this.dynamic.get(id);
-    if (body) return { x: body.position.x, y: body.position.y, angle: body.angle };
+    const sticker = this.dynamic.get(id);
+    if (sticker) return this.imagePosition(sticker);
   }
 
   snapshot(): Map<string, PhysicsPosition> {
-    const positions = new Map<string, PhysicsPosition>();
-    for (const [id, body] of this.dynamic) {
-      positions.set(id, {
-        x: body.position.x,
-        y: body.position.y,
-        angle: body.angle,
-      });
-    }
-    return positions;
+    return new Map(Array.from(this.dynamic, ([id, sticker]) => [id, this.imagePosition(sticker)]));
   }
 
   grab(id: string, x: number, y: number) {
-    const body = this.dynamic.get(id);
-    if (!body) return;
-    this.removeConstraint();
+    const sticker = this.dynamic.get(id);
+    if (!sticker) return;
     this.draggedId = id;
     this.active = true;
-    Matter.Sleeping.set(body, false);
-    // Preserve the position of the pointer relative to the sticker on pickup.
-    const pointB = { x: x - body.position.x, y: y - body.position.y };
+    Matter.Sleeping.set(sticker.body, false);
+    const pose = this.imagePosition(sticker);
     this.dragPointer = { x, y };
-    this.dragAnchor = Matter.Vector.rotate(pointB, -body.angle);
+    this.dragAnchor = Matter.Vector.rotate({ x: x - pose.x, y: y - pose.y }, -pose.angle);
+    this.attachConstraint(sticker);
+  }
+
+  private attachConstraint(sticker: PhysicsSticker) {
+    this.removeConstraint();
+    const { body, offset, size } = sticker;
+    const pointB = Matter.Vector.rotate(Matter.Vector.sub(this.dragAnchor, Matter.Vector.mult(offset, size)), body.angle);
     this.constraint = Matter.Constraint.create({
-      pointA: { x, y },
+      pointA: { ...this.dragPointer },
       bodyB: body,
       pointB,
       length: 0,
@@ -335,13 +363,13 @@ export class StickerPhysics {
 
   private updateDragTarget() {
     const constraint = this.constraint;
-    const body = constraint?.bodyB;
-    if (!constraint || !body || this.draggedId === null) return;
-    const grip = Matter.Vector.rotate(this.dragAnchor, body.angle);
+    const sticker = this.draggedId === null ? undefined : this.dynamic.get(this.draggedId);
+    if (!constraint || !sticker) return;
+    const angle = sticker.body.angle;
+    const grip = Matter.Vector.rotate(this.dragAnchor, angle);
     const requestedX = this.dragPointer.x - grip.x;
     const requestedY = this.dragPointer.y - grip.y;
-    const size = this.sizes.get(this.draggedId)!;
-    const target = this.fit(requestedX, requestedY, size, body.angle);
+    const target = this.fit(sticker, requestedX, requestedY, angle);
     constraint.pointA.x = target.x + grip.x;
     constraint.pointA.y = target.y + grip.y;
     return {
@@ -353,7 +381,7 @@ export class StickerPhysics {
   release(id: string, velocity: { x: number; y: number }, moved: boolean) {
     const target = this.updateDragTarget();
     this.removeConstraint();
-    const body = this.dynamic.get(id);
+    const body = this.dynamic.get(id)?.body;
     this.draggedId = null;
     if (!body) return;
     Matter.Sleeping.set(body, false);
@@ -386,8 +414,6 @@ export class StickerPhysics {
     Matter.Engine.clear(this.engine);
     this.dynamic.clear();
     this.statics.clear();
-    this.sizes.clear();
-    this.staticSizes.clear();
     this.walls = [];
   }
 }

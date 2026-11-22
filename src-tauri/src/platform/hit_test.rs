@@ -15,6 +15,8 @@ use std::sync::{Mutex, OnceLock};
 use std::thread;
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 use std::time::Duration;
+#[cfg(target_os = "windows")]
+use tauri::Emitter;
 use tauri::Manager;
 
 #[derive(Clone, Copy, Debug, Deserialize)]
@@ -32,6 +34,7 @@ struct HitState {
     visible: bool,
     passthrough: bool,
     pinned: bool,
+    menu_open: bool,
     origin_x: i32,
     origin_y: i32,
     scale: f64,
@@ -58,6 +61,7 @@ pub fn register(label: &str, window: &tauri::WebviewWindow) -> Result<(), String
             visible: false,
             passthrough: false,
             pinned: false,
+            menu_open: false,
             origin_x: origin.x,
             origin_y: origin.y,
             scale: scale.max(0.1),
@@ -67,11 +71,12 @@ pub fn register(label: &str, window: &tauri::WebviewWindow) -> Result<(), String
     Ok(())
 }
 
-pub fn set_rects(label: &str, rects: Vec<HitRect>) {
+pub fn set_rects(label: &str, rects: Vec<HitRect>, menu_open: bool) {
     let mut guard = lock();
     let Some(state) = guard.get_mut(label) else {
         return;
     };
+    state.menu_open = menu_open;
     state.rects = rects
         .into_iter()
         .filter(|rect| {
@@ -100,6 +105,7 @@ pub fn set_visible(label: &str, visible: bool) {
         state.visible = visible;
         if !visible {
             state.pinned = false;
+            state.menu_open = false;
         }
     }
 }
@@ -163,21 +169,38 @@ fn contains(state: &HitState, cursor_x: i32, cursor_y: i32) -> bool {
 pub fn start(app: tauri::AppHandle) {
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     thread::spawn(move || {
+        #[cfg(target_os = "windows")]
+        let mut previous_buttons = 0;
         loop {
+            #[cfg(target_os = "windows")]
+            let button_down = {
+                let buttons = mouse_buttons();
+                let pressed = buttons & !previous_buttons != 0;
+                previous_buttons = buttons;
+                pressed
+            };
             let cursor = cursor_position(&app);
             if let Some((x, y)) = cursor {
                 // Never call into Tauri while holding the state lock: window
                 // lookup / style repair can wait on the event loop, and an IPC
                 // command waiting for the same lock would deadlock.
-                let actions: Vec<(String, bool)> = {
+                let actions: Vec<_> = {
                     let guard = lock();
                     guard
                         .iter()
                         .filter(|(_, state)| state.visible)
-                        .map(|(label, state)| (label.clone(), !contains(state, x, y)))
+                        .map(|(label, state)| (label.clone(), !contains(state, x, y), state.menu_open))
                         .collect()
                 };
-                for (label, through) in actions {
+                for (label, through, menu_open) in actions {
+                    // The desktop layer stays inactive, so clicking its
+                    // click-through area does not send a native focus event.
+                    #[cfg(target_os = "windows")]
+                    if button_down && through && menu_open && label == crate::overlay::DESKTOP_LABEL {
+                        let _ = app.emit_to(label.as_str(), "overlay:blur", ());
+                    }
+                    #[cfg(not(target_os = "windows"))]
+                    let _ = menu_open;
                     if let Some(window) = app.get_webview_window(&label) {
                         if crate::platform::click_through::needs_repair(&window, through) {
                             let _ = crate::platform::click_through::set(&window, through);
@@ -192,6 +215,15 @@ pub fn start(app: tauri::AppHandle) {
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         let _ = app;
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn mouse_buttons() -> u8 {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON};
+    unsafe {
+        u8::from(GetAsyncKeyState(i32::from(VK_LBUTTON)) < 0)
+            | (u8::from(GetAsyncKeyState(i32::from(VK_RBUTTON)) < 0) << 1)
     }
 }
 

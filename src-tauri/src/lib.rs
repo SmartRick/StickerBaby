@@ -30,8 +30,13 @@ fn overlay_ready(app: AppHandle) {
 }
 
 #[tauri::command]
-fn set_overlay_rects(window: tauri::WebviewWindow, rects: Vec<overlay::RegionRect>, scale: f64) {
-    overlay::set_rects(&window, rects, scale);
+fn set_overlay_rects(
+    window: tauri::WebviewWindow,
+    rects: Vec<overlay::RegionRect>,
+    scale: f64,
+    menu_open: Option<bool>,
+) {
+    overlay::set_rects(&window, rects, scale, menu_open.unwrap_or(false));
 }
 
 #[tauri::command]

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Home, ImagePlus, Settings, Sticker } from "lucide-react";
+import { Hand, Home, ImagePlus, Settings, Sticker } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { PageKey } from "@/lib/pages";
 import { useAppStore } from "@/lib/store";
@@ -11,6 +11,7 @@ const NAV: Array<{ key: PageKey; label: string; icon: typeof Home }> = [
   { key: "home", label: "首页", icon: Home },
   { key: "library", label: "我的贴纸", icon: Sticker },
   { key: "create", label: "创建贴纸", icon: ImagePlus },
+  { key: "interactions", label: "互动", icon: Hand },
   { key: "settings", label: "设置", icon: Settings },
 ];
 

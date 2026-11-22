@@ -14,6 +14,9 @@ import { cn } from "@/lib/utils";
 const CreateStickerPage = lazy(() => import("@/components/create-sticker-page").then(
   ({ CreateStickerPage }) => ({ default: CreateStickerPage })
 ));
+const InteractionsPage = lazy(() => import("@/components/interactions-page").then(
+  ({ InteractionsPage }) => ({ default: InteractionsPage })
+));
 
 function AmbientBackdrop() {
   return (
@@ -34,6 +37,7 @@ export function MainWindow() {
     const hash = window.location.hash;
     if (hash === "#library" || hash === "#packs") return "library";
     if (hash === "#create") return "create";
+    if (hash === "#interactions") return "interactions";
     return hash === "#settings" ? "settings" : "home";
   });
   const [openPackPickerInitially, setOpenPackPickerInitially] = useState(() => window.location.hash === "#packs");
@@ -72,6 +76,11 @@ export function MainWindow() {
                 {page === "create" && (
                   <Suspense fallback={<p role="status" className="p-3 text-sm text-ink-soft">正在打开创建页…</p>}>
                     <CreateStickerPage onOpenLibrary={() => navigate("library")} />
+                  </Suspense>
+                )}
+                {page === "interactions" && (
+                  <Suspense fallback={<p role="status" className="p-3 text-sm text-ink-soft">正在打开互动页…</p>}>
+                    <InteractionsPage onOpenLibrary={() => navigate("library")} />
                   </Suspense>
                 )}
                 {page === "settings" && <SettingsPage />}

@@ -120,6 +120,9 @@ fn build_layer(
         .maximizable(false)
         .minimizable(false)
         .focused(false)
+        // Mouse activation can disrupt composition of the bottom layer on
+        // Windows. The desktop WebView still receives clicks and drags.
+        .focusable(layer != "desktop" || !cfg!(target_os = "windows"))
         .visible(false)
         .accept_first_mouse(true)
         .disable_drag_drop_handler()
@@ -192,7 +195,7 @@ pub fn start_hit_test(app: AppHandle) {
     hit_test::start(app);
 }
 
-pub fn set_rects(window: &WebviewWindow, rects: Vec<RegionRect>, scale: f64) {
+pub fn set_rects(window: &WebviewWindow, rects: Vec<RegionRect>, scale: f64, menu_open: bool) {
     let label = window.label().to_string();
     let scale = if scale.is_finite() && scale > 0.1 {
         scale
@@ -219,6 +222,7 @@ pub fn set_rects(window: &WebviewWindow, rects: Vec<RegionRect>, scale: f64) {
                 pad: rect.pad,
             })
             .collect(),
+        menu_open,
     );
 }
 

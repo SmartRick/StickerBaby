@@ -1,5 +1,5 @@
 import { useCallback, useLayoutEffect, useRef } from "react";
-import { StickerPhysics, type PhysicsPosition } from "@/lib/sticker-physics";
+import { StickerPhysics, type PhysicsGeometry, type PhysicsPosition } from "@/lib/sticker-physics";
 import type { PetInstance, Settings } from "@/lib/store";
 
 interface UseStickerPhysicsOptions {
@@ -24,10 +24,21 @@ export function useStickerPhysics({ enabled, settings, pets, lockedPets, onCommi
   const { stickerMode: mode, petScale: globalScale, tumble } = settings;
   const controllerRef = useRef<StickerPhysics | null>(null);
   const sprites = useRef(new Map<string, Sprite>());
+  const geometries = useRef(new Map<string, PhysicsGeometry>());
   const latest = useRef({ pets, lockedPets, settings, onCommit });
   const previousWorld = useRef<{ poses: Map<string, PhysicsPosition>; width: number; height: number } | null>(null);
   const requestStep = useRef<(() => void) | null>(null);
   latest.current = { pets, lockedPets, settings, onCommit };
+
+  const registerGeometry = useCallback((id: string, geometry: PhysicsGeometry | null) => {
+    if (geometry) geometries.current.set(id, geometry);
+    else geometries.current.delete(id);
+    const controller = controllerRef.current;
+    if (!controller) return;
+    const { pets, lockedPets } = latest.current;
+    controller.sync(pets, lockedPets, geometries.current);
+    requestStep.current?.();
+  }, []);
 
   const registerSprite: RegisterPhysicsSprite = useCallback((id, element) => {
     if (element) {
@@ -124,7 +135,7 @@ export function useStickerPhysics({ enabled, settings, pets, lockedPets, onCommi
             return pose ? { ...pet, x: pose.x / oldWidth, y: pose.y / oldHeight, angle: pose.angle } : pet;
           })
         : current.pets;
-      controller.sync(startingPets, current.lockedPets);
+      controller.sync(startingPets, current.lockedPets, geometries.current);
       render();
       schedule();
     };
@@ -173,7 +184,7 @@ export function useStickerPhysics({ enabled, settings, pets, lockedPets, onCommi
     const controller = controllerRef.current;
     if (!controller) return;
     controller.setTuning(settings);
-    controller.sync(pets, lockedPets);
+    controller.sync(pets, lockedPets, geometries.current);
     requestStep.current?.();
   }, [lockedPets, pets, settings]);
 
@@ -192,5 +203,5 @@ export function useStickerPhysics({ enabled, settings, pets, lockedPets, onCommi
 
   const getPosition = useCallback((id: string) => controllerRef.current?.position(id), []);
 
-  return { registerSprite, getPosition, grab, drag, release };
+  return { registerSprite, registerGeometry, getPosition, grab, drag, release };
 }

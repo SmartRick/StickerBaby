@@ -99,6 +99,7 @@ export function PetWindow() {
 
   const {
     registerSprite,
+    registerGeometry,
     getPosition,
     grab,
     drag,
@@ -267,16 +268,16 @@ export function PetWindow() {
               sticker={sticker}
               globalScale={settings.petScale}
               viewport={viewport}
-              locked={settings.locked}
-              passthrough={Boolean(pet.passthrough)}
+              passthrough={settings.passthrough || Boolean(pet.passthrough)}
               autoDim={settings.autoDim}
               reduceMotion={settings.reduceMotion}
-              hint={layer === "floating" && !onboarded && !pet.passthrough && pet.id === firstPetId}
+              hint={layer === "floating" && !onboarded && !settings.passthrough && pet.id === firstPetId}
               onActivity={activity}
               opacity={settings.autoDim && dimmed ? settings.dimOpacity : 1}
               visible={settings.overlayVisible}
               physics={physicsEnabled && !pet.passthrough}
               registerPhysicsSprite={registerSprite}
+              registerPhysicsGeometry={registerGeometry}
               getPhysicsPosition={getPosition}
               onPhysicsGrab={grab}
               onPhysicsDrag={drag}

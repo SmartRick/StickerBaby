@@ -20,7 +20,6 @@ import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 
 const TABS = ["贴纸制作", "AI 生成"] as const;
-const PREVIEWS = ["贴纸效果", "原图"] as const;
 type Mode = "cutout" | "original";
 const OUTLINE_COLORS = [
   { name: "白色", hex: "#ffffff" },
@@ -69,7 +68,7 @@ function StickerEditor({ onOpenLibrary }: { onOpenLibrary: () => void }) {
   const [mask, setMask] = useState<CutoutMask | null>(null);
   const [width, setWidth] = useState(10);
   const [color, setColor] = useState(OUTLINE_COLORS[0].hex);
-  const [preview, setPreview] = useState<(typeof PREVIEWS)[number]>("贴纸效果");
+  const [threshold, setThreshold] = useState(0);
   const [status, setStatus] = useState("");
   const [problem, setProblem] = useState("");
   const [previewProblem, setPreviewProblem] = useState("");
@@ -81,6 +80,7 @@ function StickerEditor({ onOpenLibrary }: { onOpenLibrary: () => void }) {
     mask: CutoutMask | null;
     width: number;
     color: string;
+    threshold: number;
     blob: Blob;
   } | null>(null);
   const [lastPreview, setLastPreview] = useState<{
@@ -92,7 +92,9 @@ function StickerEditor({ onOpenLibrary }: { onOpenLibrary: () => void }) {
   const appliedMask = mode === "cutout" ? mask : null;
   const ready = Boolean(info && (mode === "original" || appliedMask));
   const result = ready && rendered?.file === file && rendered?.mask === appliedMask
-    && rendered.width === width && rendered.color === color ? rendered.blob : null;
+    && rendered.width === width && rendered.color === color && rendered.threshold === threshold
+    ? rendered.blob
+    : null;
   // While a new outline is rendering, keep showing the previous render of the
   // same source instead of falling back to the untouched original image.
   const stickyPreview = lastPreview?.file === file && lastPreview.mask === appliedMask
@@ -101,7 +103,7 @@ function StickerEditor({ onOpenLibrary }: { onOpenLibrary: () => void }) {
   const originalUrl = useObjectUrl(file);
   const resultUrl = useObjectUrl(result === file ? null : result);
   const stickyUrl = useObjectUrl(stickyPreview);
-  const shownUrl = preview === "原图" || result === file
+  const shownUrl = result === file
     ? originalUrl
     : resultUrl ?? stickyUrl ?? originalUrl;
   const alreadySaved = Boolean(result) && saved.blob === result && saved.name === name.trim();
@@ -132,15 +134,15 @@ function StickerEditor({ onOpenLibrary }: { onOpenLibrary: () => void }) {
     setPreviewProblem("");
     if (!file || !ready) return;
     if (!appliedMask && width === 0) {
-      setRendered({ file, mask: null, width, color, blob: file });
+      setRendered({ file, mask: null, width, color, threshold, blob: file });
       return;
     }
 
     let current = true;
     const timer = window.setTimeout(() => {
-      void getProcessor().run("render", { file, mask: appliedMask, outline: { width, color } })
+      void getProcessor().run("render", { file, mask: appliedMask, outline: { width, color }, threshold })
         .then((blob) => {
-          if (current) setRendered({ file, mask: appliedMask, width, color, blob });
+          if (current) setRendered({ file, mask: appliedMask, width, color, threshold, blob });
         }, (error: unknown) => {
           if (current) setPreviewProblem(errorMessage(error));
         });
@@ -149,7 +151,7 @@ function StickerEditor({ onOpenLibrary }: { onOpenLibrary: () => void }) {
       current = false;
       window.clearTimeout(timer);
     };
-  }, [file, ready, appliedMask, width, color]);
+  }, [file, ready, appliedMask, width, color, threshold]);
 
   const upload = async (next: File) => {
     if (savingRef.current) return;
@@ -173,6 +175,7 @@ function StickerEditor({ onOpenLibrary }: { onOpenLibrary: () => void }) {
     setProblem("");
     setPreviewProblem("");
     setSaved({ blob: null, name: "" });
+    setThreshold(0);
     setStatus("正在读取图片…");
 
     try {
@@ -183,7 +186,6 @@ function StickerEditor({ onOpenLibrary }: { onOpenLibrary: () => void }) {
       setName(next.name.replace(/\.[^.]+$/, "").slice(0, 60) || "新贴纸");
       setMode(nextInfo.transparent ? "original" : "cutout");
       setWidth(nextInfo.transparent ? 0 : 10);
-      setPreview("贴纸效果");
     } catch (error) {
       if (pending.current === job) setProblem(errorMessage(error));
     } finally {
@@ -200,7 +202,6 @@ function StickerEditor({ onOpenLibrary }: { onOpenLibrary: () => void }) {
     setMode(next);
     setProblem("");
     setWidth(next === "original" ? 0 : 10);
-    setPreview("贴纸效果");
   };
 
   const runCutout = async () => {
@@ -216,7 +217,6 @@ function StickerEditor({ onOpenLibrary }: { onOpenLibrary: () => void }) {
       }, current);
       if (!current()) return;
       setMask(matte);
-      setPreview("贴纸效果");
     } catch (error) {
       if (current()) setProblem(errorMessage(error));
     } finally {
@@ -284,11 +284,7 @@ function StickerEditor({ onOpenLibrary }: { onOpenLibrary: () => void }) {
         className="glass flex h-full min-h-[360px] min-w-0 flex-col gap-3 rounded-[25px] p-3.5 shadow-soft"
       >
         <div className="flex items-center justify-between gap-2">
-          {file ? (
-            <Segmented options={PREVIEWS} value={preview} onChange={setPreview} className="w-[158px] shrink-0" itemClassName="h-7 whitespace-nowrap px-2 text-[11px]" />
-          ) : (
-            <h3 className="px-1.5 text-[13px] font-bold text-ink">图片预览</h3>
-          )}
+          <h3 className="px-1.5 text-[13px] font-bold text-ink">图片预览</h3>
           {file && (
             <button type="button" className={secondaryButton} disabled={saving} onClick={() => picker.current?.click()}>
               <Replace className="size-3.5" aria-hidden /> 更换图片
@@ -304,7 +300,7 @@ function StickerEditor({ onOpenLibrary }: { onOpenLibrary: () => void }) {
             <img
               src={shownUrl}
               draggable={false}
-              alt={preview === "原图" ? "上传的原图" : "贴纸效果预览"}
+              alt={mode === "original" ? "原图预览" : "贴纸效果预览"}
               className="absolute inset-0 m-auto h-[90%] w-[90%] object-contain"
             />
           ) : (
@@ -371,6 +367,27 @@ function StickerEditor({ onOpenLibrary }: { onOpenLibrary: () => void }) {
               ? mask ? "背景已移除。可对照原图检查效果。" : "模型在本机运行，首次使用会下载模型。"
               : info?.transparent ? "已检测到透明背景，可以直接保存或添加描边。" : "保留上传图片，用原图制作贴纸。"}
           </p>
+          {mode === "cutout" && mask && (
+            <div className="space-y-1.5 rounded-xl border border-[#e3edf9] bg-white/55 px-2.5 py-2">
+              <div className="flex items-center justify-between gap-2 text-[11px] font-semibold text-ink-soft">
+                <span>抠图阈值</span>
+                <output className="tabular-nums text-ink">{threshold}%</output>
+              </div>
+              <Slider
+                min={0}
+                max={80}
+                step={1}
+                value={[threshold]}
+                disabled={saving}
+                aria-label="抠图阈值"
+                onValueChange={([value]) => setThreshold(value)}
+                className="h-5 cursor-pointer"
+              />
+              <p className="text-[10px] leading-relaxed text-ink-faint">
+                数值越大，越容易把半透明的边缘一起扣掉。
+              </p>
+            </div>
+          )}
         </fieldset>
 
         <fieldset disabled={!file || saving} className="space-y-2.5 disabled:opacity-55">

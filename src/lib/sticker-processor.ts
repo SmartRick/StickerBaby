@@ -19,7 +19,7 @@ interface Jobs {
   gpuAvailable: { input: object; output: boolean };
   cutoutGpu: { input: { file: Blob; modelUrl: string }; output: CutoutMask };
   cpuInput: { input: { file: Blob }; output: ArrayBuffer };
-  render: { input: { file: Blob; mask: CutoutMask | null; outline: Outline }; output: Blob };
+  render: { input: { file: Blob; mask: CutoutMask | null; outline: Outline; threshold: number }; output: Blob };
 }
 
 export type JobType = keyof Jobs;

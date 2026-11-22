@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { characterOf } from "@/lib/characters";
 import { STICKER_BY_ID, STICKERS, type Sticker, type StickerState } from "@/lib/stickers";
 import { listCreatedStickers, type CreatedSticker } from "@/lib/created-stickers";
+import type { StickerGestureId } from "@/lib/sticker-gestures";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 export interface PetInstance {
@@ -9,6 +10,8 @@ export interface PetInstance {
   stickerId: string;
   /** A chosen pose for this instance. Omitted when switching automatically. */
   pose?: StickerState;
+  /** The interaction played by a middle click. */
+  gesture?: StickerGestureId;
   /** Normalized center position inside the full-screen overlay (0..1). */
   x: number;
   y: number;
@@ -27,7 +30,6 @@ export interface PetInstance {
 export type StickerMode = "float" | "gravity" | "space";
 
 export interface Settings {
-  locked: boolean;
   passthrough: boolean;
   overlayVisible: boolean;
   autoDim: boolean;
@@ -63,7 +65,6 @@ export interface AppActions {
   setSettings: (patch: Partial<Settings>) => void;
   toggleSetting: (
     key:
-      | "locked"
       | "passthrough"
       | "autoDim"
       | "overlayVisible"
@@ -88,7 +89,6 @@ export interface AppActions {
 export type AppStore = AppState & AppActions;
 
 export const DEFAULT_SETTINGS: Settings = {
-  locked: false,
   passthrough: false,
   overlayVisible: true,
   autoDim: true,
@@ -276,10 +276,12 @@ export const useAppStore = create<AppStore>()(
       }),
       merge: (persisted, current) => {
         const saved = persisted as Partial<AppState> | undefined;
+        const settings: Settings & { locked?: boolean } = { ...DEFAULT_SETTINGS, ...saved?.settings };
+        delete settings.locked;
         return {
           ...current,
           ...saved,
-          settings: { ...DEFAULT_SETTINGS, ...(saved?.settings ?? {}) },
+          settings,
           pets: saved?.pets ?? DEFAULT_PETS,
           previewId: saved?.previewId ?? current.previewId,
         };

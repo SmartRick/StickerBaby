@@ -4,6 +4,7 @@ import {
   ChevronRight,
   Layers,
   MonitorUp,
+  Pencil,
   RotateCcw,
   Search,
   SlidersHorizontal,
@@ -391,6 +392,7 @@ export function LibraryPage({ openPackPickerInitially }: { openPackPickerInitial
   const [mood, setMood] = useState<MoodFilter>("all");
   const [format, setFormat] = useState<FormatFilter>("all");
   const [multiStateOnly, setMultiStateOnly] = useState(false);
+  const [createdOnly, setCreatedOnly] = useState(false);
   const searchInput = useRef<HTMLInputElement | null>(null);
   const results = useRef<HTMLDivElement | null>(null);
   const activeDetails = [
@@ -404,7 +406,8 @@ export function LibraryPage({ openPackPickerInitially }: { openPackPickerInitial
     packId !== "all" ||
     activeDetails.length > 0 ||
     format !== "all" ||
-    multiStateOnly;
+    multiStateOnly ||
+    createdOnly;
 
   const choosePack = (next: string) => {
     setPackId(next);
@@ -419,6 +422,7 @@ export function LibraryPage({ openPackPickerInitially }: { openPackPickerInitial
     setMood("all");
     setFormat("all");
     setMultiStateOnly(false);
+    setCreatedOnly(false);
   };
 
   const list = useMemo(() => {
@@ -426,6 +430,7 @@ export function LibraryPage({ openPackPickerInitially }: { openPackPickerInitial
 
     return catalog.filter((character) => {
       if (packId !== "all" && character.packId !== packId) return false;
+      if (createdOnly && !character.defaultVariant.created) return false;
       if (character.defaultVariant.created && (subject !== "all" || style !== "all" || mood !== "all")) return false;
       if (subject !== "all" && character.subject !== subject) return false;
       if (style !== "all" && character.style !== style) return false;
@@ -462,7 +467,7 @@ export function LibraryPage({ openPackPickerInitially }: { openPackPickerInitial
 
       return tokens.every((token) => haystack.includes(token));
     });
-  }, [catalog, format, mood, multiStateOnly, packId, query, style, subject]);
+  }, [catalog, createdOnly, format, mood, multiStateOnly, packId, query, style, subject]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -526,6 +531,25 @@ export function LibraryPage({ openPackPickerInitially }: { openPackPickerInitial
           >
             <Layers className="size-3.5" aria-hidden />
             多状态
+          </button>
+          <button
+            type="button"
+            aria-pressed={createdOnly}
+            onClick={() => setCreatedOnly((selected) => !selected)}
+            className={cn(
+              "pressable inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl border px-2.5 text-[11px] font-semibold focus-visible:outline-2 focus-visible:outline-[#7eaff6]",
+              createdOnly
+                ? "border-[#a9cdf9] bg-[#e8f2ff] text-[#365f91]"
+                : "border-[#dce7f5] bg-white/80 text-ink-soft hover:bg-white"
+            )}
+          >
+            <Pencil className="size-3.5" aria-hidden />
+            我的创作
+            {createdCount > 0 && (
+              <span className="rounded-md bg-white/80 px-1 text-[10px] tabular-nums text-[#4c719d]">
+                {createdCount}
+              </span>
+            )}
           </button>
           <Popover.Root>
             <Popover.Trigger asChild>

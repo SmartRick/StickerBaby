@@ -4,7 +4,6 @@ import {
   Blend,
   Info,
   Keyboard,
-  LockKeyhole,
   Monitor,
   MousePointer2,
   Orbit,
@@ -361,21 +360,8 @@ export function SettingsPage() {
           description="控制贴纸层和窗口的关系"
         >
           <SettingRow
-            title="全部禁止拖动"
-            description="所有贴纸不能拖动，但仍可点击互动"
-            icon={<LockKeyhole className="h-3.5 w-3.5" />}
-            control={
-              <Switch
-                checked={settings.locked}
-                onCheckedChange={() => toggleSetting("locked")}
-                disabled={settings.passthrough}
-              />
-            }
-            disabled={settings.passthrough}
-          />
-          <SettingRow
             title="全局锁定"
-            description="所有贴纸临时锁定并可点击穿透；关闭后恢复每张贴纸自己的锁定状态"
+            description="锁定所有贴纸的拖动和缩放，鼠标点击会穿透。关闭后恢复每张贴纸自己的锁定状态。"
             icon={<MousePointer2 className="h-3.5 w-3.5" />}
             control={
               <Switch
@@ -655,9 +641,6 @@ export function SettingsPage() {
           </div>
 
           <div className="mt-2.5 flex flex-wrap gap-1.5 px-0.5">
-            <span className={cn("rounded-full px-2 py-1 text-[8.5px] font-bold", settings.locked ? "bg-[#fff2df] text-[#a9782f]" : "bg-[#f0f3f7] text-[#8b9aab]")}>
-              拖动锁定 {settings.locked ? "ON" : "OFF"}
-            </span>
             <span className={cn("rounded-full px-2 py-1 text-[8.5px] font-bold", settings.passthrough ? "bg-[#ffeaf0] text-[#c15a75]" : "bg-[#f0f3f7] text-[#8b9aab]")}>
               全局锁定 {settings.passthrough ? "ON" : "OFF"}
             </span>
@@ -676,6 +659,7 @@ export function SettingsPage() {
           </div>
           <ul className="mt-2 space-y-2 text-[9.5px] leading-[1.7] text-ink-soft">
             <li>· 左键拖动贴纸可以换位置，右键拖拽可以调整大小。</li>
+            <li>· 中键点击播放互动。主窗口左侧的「互动」可以预览和更换动作。</li>
             <li>· 右键贴纸可以锁定（点击穿透）、左右翻转、换一只或移除。</li>
             <li>· 锁定模式下主窗口和托盘仍然可以操作。</li>
             <li>· 关闭主窗口不会退出，贴纸会继续留在桌面上。</li>

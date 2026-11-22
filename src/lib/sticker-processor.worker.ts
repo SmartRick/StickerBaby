@@ -134,10 +134,23 @@ async function gpuAlpha(bitmap: ImageBitmap, url: string): Promise<CutoutMask> {
   }
 }
 
-function applyMask(context: OffscreenCanvasRenderingContext2D, mask: CutoutMask, w: number, h: number) {
+function applyMask(context: OffscreenCanvasRenderingContext2D, mask: CutoutMask, w: number, h: number, threshold: number) {
   const matte = surface(mask.size, mask.size);
   const pixels = matte.context.createImageData(mask.size, mask.size);
-  for (let i = 0; i < mask.alpha.length; i++) pixels.data[i * 4 + 3] = mask.alpha[i];
+  // A soft cutoff around the requested threshold: below it becomes fully
+  // transparent, above it fully opaque, with a short ramp keeping the edge smooth.
+  const low = Math.max(0, Math.min(255, threshold * 2.55));
+  const high = Math.min(255, low + 24);
+  for (let i = 0; i < mask.alpha.length; i++) {
+    const alpha = mask.alpha[i];
+    pixels.data[i * 4 + 3] = threshold <= 0
+      ? alpha
+      : alpha <= low
+        ? 0
+        : alpha >= high
+          ? 255
+          : Math.round(((alpha - low) / (high - low)) * 255);
+  }
   matte.context.putImageData(pixels, 0, 0);
   context.globalCompositeOperation = "destination-in";
   context.drawImage(matte.canvas, 0, 0, w, h);
@@ -214,13 +227,13 @@ function distances(alpha: Uint8ClampedArray, w: number, h: number) {
   return grid;
 }
 
-async function render(bitmap: ImageBitmap, mask: CutoutMask | null, outline: Outline) {
+async function render(bitmap: ImageBitmap, mask: CutoutMask | null, outline: Outline, threshold: number) {
   const scale = Math.min(1, MAX_EXPORT_SIDE / Math.max(bitmap.width, bitmap.height));
   const width = Math.max(1, Math.round(bitmap.width * scale));
   const height = Math.max(1, Math.round(bitmap.height * scale));
   const art = surface(width, height);
   art.context.drawImage(bitmap, 0, 0, width, height);
-  if (mask) applyMask(art.context, mask, width, height);
+  if (mask) applyMask(art.context, mask, width, height, threshold);
   const rect = mask
     ? foregroundBounds(art.context.getImageData(0, 0, width, height).data, width, height)
     : { x: 0, y: 0, w: width, h: height };
@@ -281,8 +294,8 @@ worker.onmessage = ({ data: job }: MessageEvent<JobRequest>) => {
         transfer = [output];
         break;
       case "render": {
-        const { file, mask, outline } = job.input;
-        output = await withBitmap(file, (bitmap) => render(bitmap, mask, outline));
+        const { file, mask, outline, threshold } = job.input;
+        output = await withBitmap(file, (bitmap) => render(bitmap, mask, outline, threshold));
         break;
       }
     }

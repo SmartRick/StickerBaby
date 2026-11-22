@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   ArrowUpToLine,
   Blend,
   FlipHorizontal,
   Hand,
   LockKeyhole,
-  Move,
   RotateCcw,
   Settings2,
   Shuffle,
@@ -28,7 +27,9 @@ import {
 } from "@/components/ui/context-menu";
 import { StickerImage } from "@/components/sticker-image";
 import { StickerBurst } from "@/components/sticker-burst";
+import { placeStickerGesture, StickerGestureEffect, type ActiveStickerGesture } from "@/components/sticker-gesture";
 import { effectForSticker } from "@/lib/effects";
+import { getStickerGesture, preloadStickerGestures, STICKER_GESTURES, type StickerGestureDefinition } from "@/lib/sticker-gestures";
 import { useAppStore, type PetInstance } from "@/lib/store";
 import {
   GENERIC_PHRASES,
@@ -39,10 +40,12 @@ import {
 import { CHARACTERS } from "@/lib/characters";
 import { packTitle } from "@/lib/packs";
 import { invokeSafe, onAppEvent, showMainWindow } from "@/lib/tauri";
-import { clampPetAxis, getPetSize, PET_BASE_SIZE, petHalfExtent } from "@/lib/pet-size";
-import type { PhysicsPosition } from "@/lib/sticker-physics";
+import { getPetSize, PET_BASE_SIZE } from "@/lib/pet-size";
+import type { PhysicsGeometry, PhysicsPosition } from "@/lib/sticker-physics";
+import { fitStickerCenter, stickerBounds } from "@/lib/sticker-silhouette";
 import type { RegisterPhysicsSprite } from "@/hooks/use-sticker-physics";
 import { useStickerPose } from "@/hooks/use-sticker-pose";
+import { useStickerSilhouette } from "@/hooks/use-sticker-silhouette";
 import { cn } from "@/lib/utils";
 
 interface PetSpriteProps {
@@ -50,7 +53,6 @@ interface PetSpriteProps {
   sticker: Sticker;
   globalScale: number;
   viewport: { width: number; height: number };
-  locked: boolean;
   passthrough: boolean;
   autoDim: boolean;
   reduceMotion: boolean;
@@ -60,6 +62,7 @@ interface PetSpriteProps {
   opacity: number;
   visible: boolean;
   registerPhysicsSprite: RegisterPhysicsSprite;
+  registerPhysicsGeometry: (id: string, geometry: PhysicsGeometry | null) => void;
   getPhysicsPosition: (id: string) => PhysicsPosition | undefined;
   onPhysicsGrab?: (id: string, x: number, y: number) => void;
   onPhysicsDrag?: (id: string, x: number, y: number) => void;
@@ -113,7 +116,6 @@ export function PetSprite({
   sticker,
   globalScale,
   viewport,
-  locked,
   passthrough,
   autoDim,
   reduceMotion,
@@ -123,6 +125,7 @@ export function PetSprite({
   opacity,
   visible,
   registerPhysicsSprite,
+  registerPhysicsGeometry,
   getPhysicsPosition,
   onPhysicsGrab,
   onPhysicsDrag,
@@ -144,7 +147,9 @@ export function PetSprite({
   const [burstKey, setBurstKey] = useState(0);
   const [hintVisible, setHintVisible] = useState(Boolean(hint));
   const [menuOpen, setMenuOpen] = useState(false);
+  const [activeGesture, setActiveGesture] = useState<ActiveStickerGesture | null>(null);
   const idleMotion = useAppStore((state) => state.settings.idleMotion);
+  const gesturePointer = useRef<number | null>(null);
   const dragRef = useRef<FloatDrag | null>(null);
   const physicsDragRef = useRef<{
     startX: number;
@@ -163,24 +168,35 @@ export function PetSprite({
   const burstTimer = useRef<number | undefined>(undefined);
   const reactTimer = useRef<number | undefined>(undefined);
   const gestureTimer = useRef<number | undefined>(undefined);
+  const spriteElement = useRef<HTMLDivElement | null>(null);
+  const gestureMotion = useRef<HTMLDivElement>(null);
 
   const { width, height } = viewport;
-  const size = getPetSize(globalScale, resizing ? resizeScale : pet.scale, width, height);
-  const extent = petHalfExtent(size, pet.angle ?? 0);
-  const centerX = clampPetAxis(pet.x * width, extent, width);
-  const centerY = clampPetAxis(pet.y * height, extent, height);
+  const previewScale = resizing ? resizeScale : undefined;
+  const size = getPetSize(globalScale, previewScale ?? pet.scale, width, height);
+  const poses = useStickerPose(sticker, pet.pose, visible);
+  const silhouette = useStickerSilhouette(poses.shown);
+  const bounds = stickerBounds(silhouette, pet.angle ?? 0, Boolean(pet.flipped));
+  const { x: centerX, y: centerY } = fitStickerCenter(pet.x * width, pet.y * height, size, bounds, width, height);
   const above = centerY > height * 0.72;
   const animated = visible && !reduceMotion;
   const idleAnimation =
-    !physics && !dragging && !reacting && idleMotion !== false && animated
+    !physics && !dragging && !reacting && !activeGesture && idleMotion !== false && animated
       ? idleMotionFor(sticker.characterId)
       : "";
-  const clickBounce = reacting && !reduceMotion;
-  const poses = useStickerPose(sticker, pet.pose, visible);
+  const clickBounce = reacting && !activeGesture && !reduceMotion;
+  const middleGesture = getStickerGesture(pet.gesture);
   const spriteRef = useCallback(
-    (element: HTMLDivElement | null) => registerPhysicsSprite(pet.id, element),
-    [pet.id, registerPhysicsSprite]
+    (element: HTMLDivElement | null) => {
+      spriteElement.current = element;
+      if (physics) registerPhysicsSprite(pet.id, element);
+    },
+    [pet.id, physics, registerPhysicsSprite]
   );
+  const onGestureContact = useCallback(() => setReactKey((key) => key + 1), []);
+  const onGestureFinish = useCallback((finished: ActiveStickerGesture) => {
+    setActiveGesture((current) => current === finished ? null : current);
+  }, []);
 
   const scaleBounds = () => {
     const base = PET_BASE_SIZE * globalScale;
@@ -188,6 +204,20 @@ export function PetSprite({
     const max = Math.max(min, Math.min(MAX_PET_SCALE, ABS_MAX_SIZE / base));
     return { min, max };
   };
+
+  useLayoutEffect(() => {
+    registerPhysicsGeometry(pet.id, { silhouette, previewScale });
+  }, [pet.id, previewScale, registerPhysicsGeometry, silhouette]);
+
+  useLayoutEffect(
+    () => () => registerPhysicsGeometry(pet.id, null),
+    [pet.id, registerPhysicsGeometry]
+  );
+
+  useEffect(() => {
+    if (visible) preloadStickerGestures();
+    else setActiveGesture(null);
+  }, [visible]);
 
   useEffect(() => {
     if (!hint) return;
@@ -202,6 +232,9 @@ export function PetSprite({
       window.clearTimeout(reactTimer.current);
       window.clearTimeout(gestureTimer.current);
       if (dragRef.current?.frame) window.cancelAnimationFrame(dragRef.current.frame);
+      if (gesturePointer.current !== null || gestureTimer.current !== undefined) {
+        void invokeSafe("set_overlay_dragging", { dragging: false });
+      }
     },
     []
   );
@@ -214,7 +247,10 @@ export function PetSprite({
    */
   const endOverlayGesture = useCallback((delayMs: number) => {
     window.clearTimeout(gestureTimer.current);
-    const finish = () => void invokeSafe("set_overlay_dragging", { dragging: false });
+    const finish = () => {
+      gestureTimer.current = undefined;
+      void invokeSafe("set_overlay_dragging", { dragging: false });
+    };
     if (delayMs > 0) {
       gestureTimer.current = window.setTimeout(finish, delayMs);
     } else {
@@ -228,7 +264,18 @@ export function PetSprite({
     return onAppEvent("overlay:blur", () => setMenuOpen(false));
   }, []);
 
+  useEffect(() => {
+    if (!passthrough) return;
+    setMenuOpen(false);
+    const pointerId = gesturePointer.current;
+    const sprite = spriteElement.current;
+    if (pointerId !== null && sprite?.hasPointerCapture(pointerId)) {
+      sprite.releasePointerCapture(pointerId);
+    }
+  }, [passthrough]);
+
   const react = () => {
+    setActiveGesture(null);
     const pose = poses.react();
     const text = pose?.phrase ?? (Math.random() < 0.72
       ? sticker.phrase
@@ -246,13 +293,39 @@ export function PetSprite({
     reactTimer.current = window.setTimeout(() => setReacting(false), 900);
   };
 
+  const playGesture = (definition: StickerGestureDefinition) => {
+    const sprite = spriteElement.current;
+    if (!sprite || !visible || passthrough || gesturePointer.current !== null) return;
+    const angle = (physics ? getPhysicsPosition(pet.id)?.angle : undefined) ?? pet.angle ?? 0;
+    const contactBounds = stickerBounds(silhouette, angle, Boolean(pet.flipped));
+    setActiveGesture(placeStickerGesture(definition, sprite.getBoundingClientRect(), contactBounds, viewport));
+    setHintVisible(false);
+    setBubble(null);
+    setBursting(false);
+    setReacting(false);
+    bringToFront(pet.id);
+    onActivity();
+  };
+
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (passthrough) return;
+    if (event.button === 1) {
+      // Suppress WebView2's autoscroll cursor on middle press.
+      event.preventDefault();
+      return;
+    }
+    if (gesturePointer.current !== null || (event.button !== 0 && event.button !== 2)) return;
+    onActivity();
+    setBubble(null);
+    setActiveGesture(null);
     window.clearTimeout(gestureTimer.current);
+    gestureTimer.current = undefined;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    gesturePointer.current = event.pointerId;
+    bringToFront(pet.id);
+    void invokeSafe("set_overlay_dragging", { dragging: true });
+
     if (event.button === 2) {
-      onActivity();
-      setBubble(null);
-      if (locked || passthrough || physics) return;
-      event.currentTarget.setPointerCapture(event.pointerId);
       resizeRef.current = {
         px: event.clientX,
         py: event.clientY,
@@ -260,18 +333,10 @@ export function PetSprite({
         moved: false,
       };
       resizeScaleRef.current = pet.scale;
-      setResizeScale(pet.scale);
-      bringToFront(pet.id);
-      void invokeSafe("set_overlay_dragging", { dragging: true });
       return;
     }
-    if (event.button !== 0) return;
-    onActivity();
-    setBubble(null);
-    if (locked || passthrough) return;
+    event.preventDefault();
     if (physics) {
-      event.preventDefault();
-      event.currentTarget.setPointerCapture(event.pointerId);
       physicsDragRef.current = {
         startX: event.clientX,
         startY: event.clientY,
@@ -283,13 +348,9 @@ export function PetSprite({
         moved: false,
       };
       setDragging(true);
-      bringToFront(pet.id);
       onPhysicsGrab?.(pet.id, event.clientX, event.clientY);
-      void invokeSafe("set_overlay_dragging", { dragging: true });
       return;
     }
-    event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
     dragRef.current = {
       element: event.currentTarget,
       px: event.clientX,
@@ -302,11 +363,10 @@ export function PetSprite({
       moved: false,
     };
     setDragging(true);
-    bringToFront(pet.id);
-    void invokeSafe("set_overlay_dragging", { dragging: true });
   };
 
   const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (passthrough || gesturePointer.current !== event.pointerId) return;
     const physicsDrag = physicsDragRef.current;
     if (physicsDrag) {
       const now = performance.now();
@@ -364,8 +424,7 @@ export function PetSprite({
       poses.enterDrag();
     }
 
-    const nextX = clampPetAxis(drag.x + dx, extent, width);
-    const nextY = clampPetAxis(drag.y + dy, extent, height);
+    const { x: nextX, y: nextY } = fitStickerCenter(drag.x + dx, drag.y + dy, size, bounds, width, height);
     if (nextX === drag.nextX && nextY === drag.nextY) return;
     drag.nextX = nextX;
     drag.nextY = nextY;
@@ -379,21 +438,25 @@ export function PetSprite({
   };
 
   const finishDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (gesturePointer.current !== event.pointerId) return;
+    gesturePointer.current = null;
+    const cancelled = passthrough || event.type !== "pointerup";
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
     const physicsDrag = physicsDragRef.current;
     if (physicsDrag) {
       physicsDragRef.current = null;
       setDragging(false);
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-        event.currentTarget.releasePointerCapture(event.pointerId);
-      }
       endOverlayGesture(0);
       onPhysicsRelease?.(
         pet.id,
-        { x: physicsDrag.vx, y: physicsDrag.vy },
+        cancelled ? { x: 0, y: 0 } : { x: physicsDrag.vx, y: physicsDrag.vy },
         physicsDrag.moved
       );
       if (physicsDrag.moved) poses.endDrag();
-      else if (event.type !== "pointercancel") react();
+      else if (!cancelled) react();
       return;
     }
 
@@ -402,17 +465,15 @@ export function PetSprite({
       resizeRef.current = null;
       setResizing(false);
       endOverlayGesture(resize.moved ? 320 : 0);
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-        event.currentTarget.releasePointerCapture(event.pointerId);
-      }
       if (resize.moved) {
         const scale = resizeScaleRef.current;
-        const extent = petHalfExtent(getPetSize(globalScale, scale, width, height), pet.angle ?? 0);
-        updatePet(pet.id, {
-          scale,
-          x: clampPetAxis(pet.x * width, extent, width) / width,
-          y: clampPetAxis(pet.y * height, extent, height) / height,
-        });
+        if (physics) {
+          updatePet(pet.id, { scale });
+        } else {
+          const size = getPetSize(globalScale, scale, width, height);
+          const { x, y } = fitStickerCenter(pet.x * width, pet.y * height, size, bounds, width, height);
+          updatePet(pet.id, { scale, x: x / width, y: y / height });
+        }
         suppressMenu.current = true;
         window.setTimeout(() => {
           suppressMenu.current = false;
@@ -425,22 +486,17 @@ export function PetSprite({
     dragRef.current = null;
     setDragging(false);
     endOverlayGesture(drag?.moved ? 220 : 0);
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
     if (!drag) return;
 
     window.cancelAnimationFrame(drag.frame);
     drag.element.style.translate = "";
     if (drag.moved) {
       poses.endDrag();
-      const x = event.type === "pointercancel" ? drag.nextX : drag.x + event.clientX - drag.px;
-      const y = event.type === "pointercancel" ? drag.nextY : drag.y + event.clientY - drag.py;
-      updatePet(pet.id, {
-        x: clampPetAxis(x, extent, width) / width,
-        y: clampPetAxis(y, extent, height) / height,
-      });
-    } else if (event.type !== "pointercancel") {
+      const requestedX = cancelled ? drag.nextX : drag.x + event.clientX - drag.px;
+      const requestedY = cancelled ? drag.nextY : drag.y + event.clientY - drag.py;
+      const { x, y } = fitStickerCenter(requestedX, requestedY, size, bounds, width, height);
+      updatePet(pet.id, { x: x / width, y: y / height });
+    } else if (!cancelled) {
       react();
     }
   };
@@ -469,7 +525,7 @@ export function PetSprite({
 
   return (
     <ContextMenu
-      open={menuOpen}
+      open={menuOpen && !passthrough}
       onOpenChange={(open) => {
         setMenuOpen(open);
         if (open) {
@@ -479,21 +535,15 @@ export function PetSprite({
         }
       }}
     >
-      <ContextMenuTrigger asChild>
+      <ContextMenuTrigger asChild disabled={passthrough}>
         <div
-          ref={physics ? spriteRef : undefined}
+          ref={spriteRef}
           data-pet-hit
           data-pet-passthrough={passthrough ? "true" : undefined}
           className={cn(
             "group absolute select-none transition-opacity duration-700 ease-out",
             passthrough ? "pointer-events-none" : "pet-hit",
-            resizing
-              ? "cursor-nwse-resize"
-              : dragging
-                ? "cursor-grabbing"
-                : locked
-                  ? "cursor-default"
-                  : "cursor-grab"
+            resizing ? "cursor-nwse-resize" : dragging ? "cursor-grabbing" : "cursor-grab"
           )}
           style={{
             left: physics ? 0 : centerX,
@@ -508,17 +558,18 @@ export function PetSprite({
           onPointerMove={handlePointerMove}
           onPointerUp={finishDrag}
           onPointerCancel={finishDrag}
+          onLostPointerCapture={finishDrag}
           onPointerEnter={onActivity}
           onPointerLeave={onActivity}
+          onAuxClick={(event) => {
+            if (event.button !== 1) return;
+            event.preventDefault();
+            playGesture(middleGesture);
+          }}
           onContextMenuCapture={(event) => {
             if (resizeRef.current?.moved || suppressMenu.current) {
               event.preventDefault();
               event.stopPropagation();
-            }
-          }}          onClick={() => {
-            if (locked && !passthrough) {
-              onActivity();
-              react();
             }
           }}
         >
@@ -546,8 +597,7 @@ export function PetSprite({
             </div>
           )}
 
-          {/* sticker */}
-          <div className="relative h-full w-full transition-transform duration-200">
+          <div ref={gestureMotion} className="relative h-full w-full">
             {resizing && (
               <>
                 <div className="pointer-events-none absolute -inset-1 z-10 rounded-[20px] border-2 border-dashed border-[#74adf7]/80 bg-[#cfe4ff]/10" />
@@ -556,7 +606,6 @@ export function PetSprite({
                 </span>
               </>
             )}
-            <div className="pointer-events-none absolute left-1/2 top-[88%] h-[10%] w-[62%] -translate-x-1/2 rounded-[50%] bg-[radial-gradient(50%_100%_at_50%_50%,rgba(30,48,74,0.22),transparent_72%)]" />
             <div
               data-pet-angle
               className="relative h-full w-full"
@@ -585,15 +634,18 @@ export function PetSprite({
             </div>
           </div>
 
-          {/* lock badge */}
-          {locked && (
-            <span className="absolute right-[6%] top-[5%] z-20 grid h-5 w-5 place-items-center rounded-full border border-white/90 bg-white/90 text-[#d99a3a] shadow-sm">
-              <LockKeyhole className="h-2.5 w-2.5" strokeWidth={2.6} />
-            </span>
+          {activeGesture && (
+            <StickerGestureEffect
+              gesture={activeGesture}
+              spriteMotion={gestureMotion}
+              reduceMotion={reduceMotion}
+              onContact={onGestureContact}
+              onFinish={onGestureFinish}
+            />
           )}
 
           {/* hint */}
-          {hintVisible && (
+          {hintVisible && !passthrough && (
             <div
               className={cn(
                 "pointer-events-none absolute left-1/2 z-40 -translate-x-1/2 whitespace-nowrap rounded-full border border-white/90 bg-white/92 px-3 py-1.5 text-[10px] font-semibold text-[#5a7694] shadow-[0_12px_24px_-16px_rgba(35,60,100,0.55)] backdrop-blur",
@@ -604,7 +656,7 @@ export function PetSprite({
               <span className="mr-1 inline-flex items-center gap-1 text-[#4a8df8]">
                 <Hand className="h-3 w-3" /> 拖动我
               </span>
-              · 右键还有更多玩法
+              · 中键抚摸
             </div>
           )}
         </div>
@@ -644,13 +696,6 @@ export function PetSprite({
           <ArrowUpToLine className="mr-1 h-3.5 w-3.5" /> 置顶
         </ContextMenuCheckboxItem>
         <ContextMenuCheckboxItem
-          checked={!locked}
-          onCheckedChange={() => setSettings({ locked: !locked })}
-          className="gap-2 rounded-xl py-1.5 pl-8 pr-2 text-[11px] font-medium text-[#4b6580] focus:bg-[#eef5ff] focus:text-[#34689f]"
-        >
-          <Move className="mr-1 h-3.5 w-3.5" /> 可以拖动
-        </ContextMenuCheckboxItem>
-        <ContextMenuCheckboxItem
           checked={Boolean(pet.flipped)}
           onCheckedChange={() => updatePet(pet.id, { flipped: !pet.flipped })}
           className="gap-2 rounded-xl py-1.5 pl-8 pr-2 text-[11px] font-medium text-[#4b6580] focus:bg-[#eef5ff] focus:text-[#34689f]"
@@ -658,11 +703,11 @@ export function PetSprite({
           <FlipHorizontal className="mr-1 h-3.5 w-3.5" /> 左右翻转
         </ContextMenuCheckboxItem>
         <ContextMenuCheckboxItem
-          checked={passthrough}
-          onCheckedChange={() => {
+          checked={Boolean(pet.passthrough)}
+          onCheckedChange={(checked) => {
             const position = getPhysicsPosition(pet.id);
             updatePet(pet.id, {
-              passthrough: !passthrough,
+              passthrough: checked,
               ...(position && {
                 x: position.x / window.innerWidth,
                 y: position.y / window.innerHeight,
@@ -682,6 +727,34 @@ export function PetSprite({
           <Blend className="mr-1 h-3.5 w-3.5" /> 自动变淡
         </ContextMenuCheckboxItem>
         <ContextMenuSeparator className="my-1 bg-[#edf3fa]" />
+        <ContextMenuSub>
+          <ContextMenuSubTrigger className="gap-2 rounded-xl px-2 py-1.5 text-[11px] font-medium text-[#4b6580] focus:bg-[#eef5ff] focus:text-[#34689f]">
+            <Hand className="h-3.5 w-3.5" /> 互动
+          </ContextMenuSubTrigger>
+          <ContextMenuPortal>
+            <ContextMenuSubContent data-pet-menu className="pointer-events-auto rounded-[16px] p-1.5">
+              <ContextMenuLabel className="px-2 py-1 text-[10px] text-ink-faint">
+                选中后设为中键动作
+              </ContextMenuLabel>
+              <ContextMenuRadioGroup value={middleGesture.id}>
+                {STICKER_GESTURES.map((definition) => (
+                  <ContextMenuRadioItem
+                    key={definition.id}
+                    value={definition.id}
+                    onSelect={() => {
+                      updatePet(pet.id, { gesture: definition.id });
+                      playGesture(definition);
+                    }}
+                    className="gap-2 rounded-xl py-1.5 pl-7 pr-3 text-[11px] font-medium text-[#4b6580] focus:bg-[#eef5ff] focus:text-[#34689f]"
+                  >
+                    <img src={definition.image} alt="" className="h-5 w-7 object-contain" draggable={false} />
+                    {definition.label}
+                  </ContextMenuRadioItem>
+                ))}
+              </ContextMenuRadioGroup>
+            </ContextMenuSubContent>
+          </ContextMenuPortal>
+        </ContextMenuSub>
         {poses.variants && (
           <ContextMenuSub>
             <ContextMenuSubTrigger className="gap-2 rounded-xl px-2 py-1.5 text-[11px] font-medium text-[#4b6580]">

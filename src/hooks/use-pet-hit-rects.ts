@@ -18,8 +18,8 @@ const MOTION_SAMPLE_MS = 1000 / 30 - 1;
 export function usePetHitRects(enabled: boolean) {
   useEffect(() => {
     if (!inTauri) return;
-    const sendRects = (rects: Rect[], scale = window.devicePixelRatio || 1) =>
-      invoke("set_overlay_rects", { rects, scale });
+    const sendRects = (rects: Rect[], scale = window.devicePixelRatio || 1, menuOpen = false) =>
+      invoke("set_overlay_rects", { rects, scale, menuOpen });
     const clear = () => void sendRects([]).catch(() => {});
     if (!enabled) {
       clear();
@@ -32,7 +32,7 @@ export function usePetHitRects(enabled: boolean) {
     let dirty = true;
     let targets: { element: HTMLElement; pad: number }[] = [];
     let lastKey = "";
-    let pending: { rects: Rect[]; scale: number } | undefined;
+    let pending: { rects: Rect[]; scale: number; menuOpen: boolean } | undefined;
     let sending = false;
     let disposed = false;
 
@@ -41,9 +41,9 @@ export function usePetHitRects(enabled: boolean) {
       sending = true;
       try {
         while (pending && !disposed) {
-          const { rects, scale } = pending;
+          const { rects, scale, menuOpen } = pending;
           pending = undefined;
-          await sendRects(rects, scale);
+          await sendRects(rects, scale, menuOpen);
         }
       } catch {
         // Retry the latest geometry on the next measurement or heartbeat.
@@ -75,10 +75,11 @@ export function usePetHitRects(enabled: boolean) {
         rects.push({ x: Math.round(x), y: Math.round(y), w: Math.round(width), h: Math.round(height), pad });
       }
       const scale = window.devicePixelRatio || 1;
-      const key = JSON.stringify([scale, rects]);
+      const menuOpen = Boolean(document.querySelector('[data-pet-menu][data-state="open"]'));
+      const key = JSON.stringify([scale, rects, menuOpen]);
       if (key !== lastKey) {
         lastKey = key;
-        pending = { rects, scale };
+        pending = { rects, scale, menuOpen };
         void flush();
       }
     };
