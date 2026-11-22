@@ -9,7 +9,6 @@ import { toast } from "@/lib/toast";
 interface HomePageProps {
   onNavigate: (page: PageKey) => void;
 }
-
 function pickRandom(exclude?: string) {
   const pool = CHARACTERS.map((character) => character.defaultVariant).filter(
     (sticker) => sticker.id !== exclude
@@ -38,7 +37,7 @@ export function HomePage({ onNavigate }: HomePageProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
-      <HeroBanner onAdopt={adopt} />
+      <HeroBanner onAdopt={adopt} onCreate={() => onNavigate("create")} />
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1.45fr)_minmax(340px,1fr)] gap-4">
         <PreviewPanel onShuffle={shuffle} onCreateSticker={() => onNavigate("create")} />
         <HomeQuickPanel onNavigate={onNavigate} />

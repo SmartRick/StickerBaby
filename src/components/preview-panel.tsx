@@ -16,7 +16,7 @@ import { GENERIC_PHRASES, STATE_LABEL, STICKERS } from "@/lib/stickers";
 import { characterOf } from "@/lib/characters";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { packTitle } from "@/lib/packs";
-import { ROOMS } from "@/lib/rooms";
+import { ROOMS, initialRoomIndex, rememberRoomIndex } from "@/lib/rooms";
 import { effectForSticker } from "@/lib/effects";
 import { StickerBurst } from "@/components/sticker-burst";
 import { toast } from "@/lib/toast";
@@ -63,7 +63,7 @@ export function PreviewPanel({ onShuffle, onCreateSticker }: PreviewPanelProps) 
   const reduceMotion = useAppStore((state) => state.settings.reduceMotion);
   const [paused, setPaused] = useState(false);
   const [reactKey, setReactKey] = useState(0);
-  const [roomIndex, setRoomIndex] = useState(() => Math.floor(Math.random() * ROOMS.length));
+  const [roomIndex, setRoomIndex] = useState(initialRoomIndex);
   const [stageGreet, setStageGreet] = useState(0);
   const [stageBouncing, setStageBouncing] = useState(false);
   const [stageBubble, setStageBubble] = useState<{ id: number; text: string } | null>(null);
@@ -120,7 +120,7 @@ export function PreviewPanel({ onShuffle, onCreateSticker }: PreviewPanelProps) 
 
   return (
     <section className="glass flex h-full min-h-0 flex-1 flex-col rounded-[28px] p-3 shadow-soft">
-      <div className="room-scene relative min-h-[280px] flex-1 overflow-hidden rounded-[22px] border border-white/50">
+      <div className="relative min-h-[280px] flex-1 overflow-hidden rounded-[22px] border border-white/50 bg-[#dceaf9]">
         {/* generated room backdrop */}
         <img
           src={ROOMS[roomIndex]}
@@ -155,7 +155,11 @@ export function PreviewPanel({ onShuffle, onCreateSticker }: PreviewPanelProps) 
         <div className="absolute right-3.5 top-3.5 z-20 flex gap-1.5">
           <ToolButton
             label="换个房间"
-            onClick={() => setRoomIndex((index) => (index + 1) % ROOMS.length)}
+            onClick={() => setRoomIndex((index) => {
+              const next = (index + 1) % ROOMS.length;
+              rememberRoomIndex(next);
+              return next;
+            })}
           >
             <ImageIcon className="h-3.5 w-3.5" />
           </ToolButton>
