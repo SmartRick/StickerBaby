@@ -57,5 +57,5 @@ export function characterOf(sticker: Sticker): StickerCharacter | undefined {
 }
 
 export function characterHasAnimated(character: StickerCharacter): boolean {
-  return character.variants.some((variant) => variant.kind === "animated");
+  return character.variants.some((variant) => variant.kind !== "static");
 }

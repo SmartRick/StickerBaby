@@ -1,7 +1,10 @@
 import { PACKS } from "@/lib/packs";
 import type { Mood, Style, Subject } from "@/lib/taxonomy";
 
-export type StickerKind = "static" | "animated";
+import type { ChromaKey } from "@/shared/protocol";
+
+/** static 静态图；animated Rive 动态；video 视频（可绿幕抠像） */
+export type StickerKind = "static" | "animated" | "video";
 
 /**
  * One character can ship several poses. The library groups them into a single
@@ -69,6 +72,8 @@ export interface Sticker {
   tags: string[];
   kind: StickerKind;
   riveSrc?: string;
+  /** 视频贴纸：站内路径或本地绝对路径 + 抠像参数 */
+  video?: { src: string; chroma: ChromaKey | null; poster?: string };
   phrase: string;
   accent: string;
   glow: string;
@@ -598,6 +603,27 @@ export const STICKERS: Sticker[] = [
 }).map((sticker): Sticker => {
   const riveSrc = riveFiles[`../assets/sticker-motion/${sticker.id}.riv`];
   return { ...sticker, riveSrc, kind: riveSrc ? "animated" : "static" };
+});
+
+/** 绿幕视频贴纸：悬浮层用 WebGL 实时抠像，图库里显示抠好的封面帧 */
+const GREEN_SCREEN: ChromaKey = { color: [0.01, 0.96, 0.01], similarity: 0.4, smoothness: 0.08, spill: 0.1 };
+
+STICKERS.push({
+  id: "video-dance",
+  characterId: "video-dance",
+  state: "default",
+  name: "绿幕跳舞",
+  en: "Dance",
+  packId: "video-fun",
+  subject: "character",
+  style: "illustration-2d",
+  mood: "energetic",
+  tags: ["视频", "跳舞", "绿幕", "动态"],
+  kind: "video",
+  video: { src: "/assets/dance-greenscreen.mp4", chroma: GREEN_SCREEN },
+  phrase: "一起跳起来！",
+  accent: "#eef3ff",
+  glow: "rgba(120, 150, 255, 0.38)",
 });
 
 export const STICKER_BY_ID = new Map(STICKERS.map((sticker) => [sticker.id, sticker]));

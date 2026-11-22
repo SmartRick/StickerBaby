@@ -3,6 +3,7 @@ import { characterOf } from "@/lib/characters";
 import { STICKER_BY_ID, STICKERS, type Sticker, type StickerState } from "@/lib/stickers";
 import { listCreatedStickers, type CreatedSticker } from "@/lib/created-stickers";
 import type { StickerGestureId } from "@/lib/sticker-gestures";
+import type { ChromaKey, ParticleKind } from "@/shared/protocol";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 export interface PetInstance {
@@ -25,9 +26,23 @@ export interface PetInstance {
   angle?: number;
   /** Floating (above apps) or desktop (wallpaper layer). Defaults to floating. */
   layer?: "floating" | "desktop";
+  /** 点击 / 抚摸时喷出的粒子；缺省按贴纸主题自动选择 */
+  particles?: ParticleKind[];
+  /** 视频贴纸的抠像参数覆盖；缺省用贴纸自带参数 */
+  chroma?: ChromaKey | null;
 }
 
-export type StickerMode = "float" | "gravity" | "space";
+/**
+ * 贴纸运动模式：
+ * - float   悬浮：拖到哪停在哪，静止时轻轻呼吸摇摆
+ * - desk    桌面：像放在桌面上的物体，甩出后带摩擦滑行、撞边挤压回弹（默认）
+ * - space   太空：无重力、几乎无阻力，弹簧拖拽，甩一下就一直漂
+ * - gravity 重力：下落、堆叠、翻滚
+ * 桌面 / 太空 / 重力各自可以打开或关闭“贴纸之间碰撞”。
+ */
+export type StickerMode = "float" | "desk" | "space" | "gravity";
+export type PhysicsMode = Exclude<StickerMode, "float">;
+export const STICKER_MODES: StickerMode[] = ["float", "desk", "space", "gravity"];
 
 export interface Settings {
   passthrough: boolean;
@@ -45,9 +60,14 @@ export interface Settings {
   inertiaStrength: number;
   physicsWeight: number;
   physicsBounce: number;
-  petCollisions: boolean;
-  /** Float mode: gentle idle breathing / sway. */
+  /** @deprecated 旧版单一开关，迁移到 collisions */
+  petCollisions?: boolean;
+  /** 各模式下贴纸之间是否碰撞 */
+  collisions: Record<PhysicsMode, boolean>;
+  /** 悬浮 / 桌面模式下贴纸静止时轻轻呼吸、摇摆 */
   idleMotion: boolean;
+  /** 悬浮层所在显示器（list_monitors 的序号） */
+  monitorIndex: number;
 }
 
 export interface AppState {
@@ -59,6 +79,10 @@ export interface AppState {
   onboarded: boolean;
   /** Shared auto-dim state so both overlay layers fade together. */
   dimmed: boolean;
+  /** 每款贴纸（按角色）默认的点击粒子；缺省按主题自动。桌面上的单张贴纸还能再单独覆盖 */
+  stickerParticles: Record<string, ParticleKind[]>;
+  /** 使用记录（按角色）：贴到桌面的次数与最近一次时间，首页推荐按它排序 */
+  usage: Record<string, { count: number; last: number }>;
 }
 
 export interface AppActions {
@@ -76,11 +100,13 @@ export interface AppActions {
   removeCreatedSticker: (id: string) => void;
   addPet: (stickerId: string) => string;
   removePet: (id: string) => void;
+  duplicatePet: (id: string) => void;
   updatePet: (id: string, patch: Partial<PetInstance>) => void;
   bringToFront: (id: string) => void;
   clearPets: () => void;
   setOnboarded: (value: boolean) => void;
   setDimmed: (value: boolean) => void;
+  setStickerParticles: (characterId: string, particles: ParticleKind[] | undefined) => void;
   commitPetPositions: (
     positions: Record<string, { x: number; y: number; angle: number }>
   ) => void;
@@ -96,15 +122,16 @@ export const DEFAULT_SETTINGS: Settings = {
   dimDelay: 6,
   petScale: 1,
   reduceMotion: false,
-  stickerMode: "float",
+  stickerMode: "desk",
   tumble: true,
   physicsFps: 60,
   gravityStrength: 1,
   inertiaStrength: 1,
   physicsWeight: 1,
   physicsBounce: 1,
-  petCollisions: true,
+  collisions: { desk: false, space: true, gravity: true },
   idleMotion: true,
+  monitorIndex: -1,
 };
 
 const DEFAULT_PETS: PetInstance[] = [
@@ -131,6 +158,7 @@ function applyPositions(pets: PetInstance[], positions: PetPositions) {
 }
 
 function createdVariant(sticker: CreatedSticker): Sticker {
+  const video = sticker.media === "video";
   return {
     id: sticker.id,
     characterId: sticker.id,
@@ -141,9 +169,10 @@ function createdVariant(sticker: CreatedSticker): Sticker {
     subject: "object",
     style: "illustration-2d",
     mood: "cute",
-    tags: ["我的创作", "自制", "创建"],
-    kind: "static",
+    tags: video ? ["我的创作", "自制", "视频"] : ["我的创作", "自制", "创建"],
+    kind: video ? "video" : "static",
     created: { path: sticker.path },
+    ...(video && { video: { src: sticker.path ?? "", chroma: sticker.chroma ?? null } }),
     phrase: "我是你亲手做的贴纸。",
     accent: "#e8f3ff",
     glow: "#bddbfa",
@@ -169,19 +198,11 @@ export const useAppStore = create<AppStore>()(
       createdStickersLoaded: false,
       onboarded: false,
       dimmed: false,
+      stickerParticles: {},
+      usage: {},
 
       setSettings: (patch) =>
-        set((state) => {
-          const settings = { ...state.settings, ...patch };
-          const enteringFloat =
-            settings.stickerMode === "float" && state.settings.stickerMode !== "float";
-          return {
-            settings,
-            pets: enteringFloat
-              ? state.pets.map((pet) => ({ ...pet, flipped: false, angle: 0 }))
-              : state.pets,
-          };
-        }),
+        set((state) => ({ settings: { ...state.settings, ...patch } })),
 
       toggleSetting: (key) =>
         set((state) => ({
@@ -228,12 +249,35 @@ export const useAppStore = create<AppStore>()(
             },
           ],
           settings: { ...state.settings, overlayVisible: true },
+          usage: {
+            ...state.usage,
+            [variant?.characterId ?? baseId]: {
+              count: (state.usage[variant?.characterId ?? baseId]?.count ?? 0) + 1,
+              last: Date.now(),
+            },
+          },
         }));
         return id;
       },
 
       removePet: (id) =>
         set((state) => ({ pets: state.pets.filter((pet) => pet.id !== id) })),
+
+      duplicatePet: (id) =>
+        set((state) => {
+          const source = state.pets.find((pet) => pet.id === id);
+          if (!source) return state;
+          const maxZ = state.pets.reduce((top, pet) => Math.max(top, pet.z), 0);
+          const copy: PetInstance = {
+            ...source,
+            id: `pet-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+            x: Math.min(0.95, source.x + 0.025),
+            y: Math.min(0.95, source.y + 0.035),
+            z: maxZ + 1,
+            passthrough: false,
+          };
+          return { pets: [...state.pets, copy] };
+        }),
 
       updatePet: (id, patch) =>
         set((state) => ({
@@ -254,6 +298,14 @@ export const useAppStore = create<AppStore>()(
 
       setDimmed: (value) => set({ dimmed: value }),
 
+      setStickerParticles: (characterId, particles) =>
+        set((state) => {
+          const next = { ...state.stickerParticles };
+          if (particles?.length) next[characterId] = particles;
+          else delete next[characterId];
+          return { stickerParticles: next };
+        }),
+
       commitPetPositions: (positions) => {
         committingPositions = true;
         try {
@@ -273,11 +325,16 @@ export const useAppStore = create<AppStore>()(
         pets: state.pets,
         previewId: state.previewId,
         onboarded: state.onboarded,
+        stickerParticles: state.stickerParticles,
+        usage: state.usage,
       }),
       merge: (persisted, current) => {
         const saved = persisted as Partial<AppState> | undefined;
         const settings: Settings & { locked?: boolean } = { ...DEFAULT_SETTINGS, ...saved?.settings };
         delete settings.locked;
+        if (!STICKER_MODES.includes(settings.stickerMode)) settings.stickerMode = "desk";
+        settings.collisions = { ...DEFAULT_SETTINGS.collisions, ...saved?.settings?.collisions };
+        delete settings.petCollisions;
         return {
           ...current,
           ...saved,
@@ -338,6 +395,8 @@ if (channel) {
     }
     if (state.onboarded !== previous.onboarded) patch.onboarded = state.onboarded;
     if (state.dimmed !== previous.dimmed) patch.dimmed = state.dimmed;
+    if (state.stickerParticles !== previous.stickerParticles) patch.stickerParticles = state.stickerParticles;
+    if (state.usage !== previous.usage) patch.usage = state.usage;
     if (Object.keys(patch).length > 0) channel.postMessage(patch);
   });
 }

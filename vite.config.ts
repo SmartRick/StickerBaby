@@ -12,6 +12,16 @@ export default defineConfig({
     },
   },
   clearScreen: false,
+  build: {
+    target: "es2022",
+    rollupOptions: {
+      // 主界面 + 悬浮层（置顶层 / 桌面层共用）
+      input: {
+        main: fileURLToPath(new URL("./index.html", import.meta.url)),
+        overlay: fileURLToPath(new URL("./overlay.html", import.meta.url)),
+      },
+    },
+  },
   server: {
     port: 1420,
     strictPort: true,

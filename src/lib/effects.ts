@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { STICKER_BY_ID } from "@/lib/stickers";
 import type { Mood } from "@/lib/taxonomy";
+import type { ParticleKind } from "@/shared/protocol";
 
 export type PetEffect =
   | "fish"
@@ -107,4 +108,23 @@ export function effectForSticker(id: string): PetEffect {
   const sticker = STICKER_BY_ID.get(id);
   if (!sticker) return "heart";
   return EFFECT_BY_PACK[sticker.packId] ?? EFFECT_BY_MOOD[sticker.mood];
+}
+
+/** 桌面贴纸被点击 / 抚摸时喷出的粒子（悬浮层粒子系统里的 3D 图标） */
+const PARTICLES_BY_EFFECT: Record<PetEffect, ParticleKind[]> = {
+  fish: ["fishbone", "bubble"],
+  paw: ["paw", "bone"],
+  leaf: ["leaf", "petal"],
+  carrot: ["leaf", "heart"],
+  snow: ["snowflake", "ice"],
+  bubble: ["bubble", "drop"],
+  star: ["star", "sparkle"],
+  heart: ["heart", "sparkle"],
+  berry: ["heart", "flower"],
+  note: ["note", "sparkle"],
+};
+
+export function particlesForSticker(id: string): ParticleKind[] {
+  if (STICKER_BY_ID.get(id)?.kind === "video") return ["note", "heart"];
+  return PARTICLES_BY_EFFECT[effectForSticker(id)];
 }

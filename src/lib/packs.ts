@@ -270,6 +270,19 @@ export const PACKS: StickerPack[] = [
     glow: "rgba(255, 164, 186, 0.4)",
     tags: ["职场", "打工人", "萌系", "文字"],
   },
+  {
+    id: "video-fun",
+    title: "视频贴纸",
+    short: "视频",
+    tagline: "会动的绿幕抠像贴纸",
+    coverStickerId: "video-dance",
+    subject: "character",
+    style: "illustration-2d",
+    mood: "energetic",
+    accent: "#eef3ff",
+    glow: "rgba(120, 150, 255, 0.38)",
+    tags: ["视频", "绿幕", "跳舞", "动态"],
+  },
 ];
 
 export const PACK_BY_ID = new Map(PACKS.map((pack) => [pack.id, pack]));

@@ -1,11 +1,14 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { inTauri } from "@/lib/tauri";
+import type { ChromaKey } from "@/shared/protocol";
 
 export interface CreatedSticker {
   id: string;
   name: string;
   path?: string;
   createdAt?: number;
+  media?: "video";
+  chroma?: ChromaKey | null;
 }
 
 let browserStorage: Promise<IDBDatabase> | undefined;
@@ -59,6 +62,19 @@ export async function saveCreatedSticker(name: string, image: Blob): Promise<Cre
     transaction.objectStore("images").add(image, sticker.id);
   });
   return sticker;
+}
+
+/** 导入视频贴纸（仅桌面端） */
+export async function saveCreatedVideo(name: string, file: File, chroma: ChromaKey | null): Promise<CreatedSticker> {
+  const ext = (file.name.split(".").pop() || "mp4").toLowerCase();
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  return invoke("save_created_video", bytes, {
+    headers: {
+      "x-name": encodeURIComponent(name),
+      "x-ext": ext,
+      "x-chroma": chroma ? JSON.stringify(chroma) : "",
+    },
+  });
 }
 
 export function nativeStickerUrl(path: string) {
