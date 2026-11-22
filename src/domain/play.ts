@@ -11,23 +11,25 @@ export interface PlayParams {
   intensity: number;
   /** 窗口扰动对象 */
   target: WindowFxTarget;
+  /** 卡片设置弹窗里调的自定义参数（如数量），随指令发给悬浮层 */
+  options?: { count?: number };
 }
 
 /** 返回窗口扰动影响的窗口数；其他玩法返回 null */
-export async function play(p: Playable, { intensity, target }: PlayParams): Promise<number | null> {
-  const options = { intensity };
+export async function play(p: Playable, { intensity, target, options }: PlayParams): Promise<number | null> {
+  const opts = { intensity, ...options };
   switch (p.engine) {
     case "effect":
-      await sendToOverlay({ type: "effect.play", kind: p.kind, options });
+      await sendToOverlay({ type: "effect.play", kind: p.kind, options: opts });
       return null;
     case "prank":
-      await sendToOverlay({ type: "prank.start", kind: p.kind, options });
+      await sendToOverlay({ type: "prank.start", kind: p.kind, options: opts });
       return null;
     case "distort":
-      await sendToOverlay({ type: "distort.play", kind: p.kind, options });
+      await sendToOverlay({ type: "distort.play", kind: p.kind, options: opts });
       return null;
     case "combo":
-      await sendToOverlay({ type: "combo.play", kind: p.kind, options });
+      await sendToOverlay({ type: "combo.play", kind: p.kind, options: opts });
       return null;
     case "window":
       return (await windowFx(p.kind, target, 600 + intensity * 900, intensity)) ?? 0;

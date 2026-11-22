@@ -83,6 +83,8 @@ export interface AppState {
   stickerParticles: Record<string, ParticleKind[]>;
   /** 使用记录（按角色）：贴到桌面的次数与最近一次时间，首页推荐按它排序 */
   usage: Record<string, { count: number; last: number }>;
+  /** 玩法的自定义参数（按玩法 id），如爬虫 / 金鱼的数量 */
+  playOptions: Record<string, { count?: number }>;
 }
 
 export interface AppActions {
@@ -107,6 +109,7 @@ export interface AppActions {
   setOnboarded: (value: boolean) => void;
   setDimmed: (value: boolean) => void;
   setStickerParticles: (characterId: string, particles: ParticleKind[] | undefined) => void;
+  setPlayOption: (id: string, values: { count?: number }) => void;
   commitPetPositions: (
     positions: Record<string, { x: number; y: number; angle: number }>
   ) => void;
@@ -200,6 +203,7 @@ export const useAppStore = create<AppStore>()(
       dimmed: false,
       stickerParticles: {},
       usage: {},
+      playOptions: {},
 
       setSettings: (patch) =>
         set((state) => ({ settings: { ...state.settings, ...patch } })),
@@ -306,6 +310,9 @@ export const useAppStore = create<AppStore>()(
           return { stickerParticles: next };
         }),
 
+      setPlayOption: (id, values) =>
+        set((state) => ({ playOptions: { ...state.playOptions, [id]: { ...state.playOptions[id], ...values } } })),
+
       commitPetPositions: (positions) => {
         committingPositions = true;
         try {
@@ -327,6 +334,7 @@ export const useAppStore = create<AppStore>()(
         onboarded: state.onboarded,
         stickerParticles: state.stickerParticles,
         usage: state.usage,
+        playOptions: state.playOptions,
       }),
       merge: (persisted, current) => {
         const saved = persisted as Partial<AppState> | undefined;

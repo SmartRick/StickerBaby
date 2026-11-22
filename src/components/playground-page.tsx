@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { AppWindow, Gauge, Play, Square, TriangleAlert, Zap } from "lucide-react";
+import { AppWindow, Gauge, Play, RotateCcw, Settings2, Square, TriangleAlert, Zap } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
-import { categoriesOf, playablesOf, runningIds, thumbOf, type Playable, type PlayCategory, type PlayDomain } from "@/domain/playables";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { categoriesOf, playablesOf, runningIds, thumbOf, type Playable, type PlayCategory, type PlayDomain, type PlayParamSpec } from "@/domain/playables";
 import { play, stop, stopDomain } from "@/domain/play";
 import { useOverlayRuntime } from "@/lib/overlay-client";
+import { useAppStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import type { WindowFxTarget } from "@/shared/protocol";
@@ -16,6 +18,7 @@ export function PlaygroundPage({ domain }: { domain: PlayDomain }) {
   const categories = categoriesOf(domain);
   const runtime = useOverlayRuntime();
   const running = runningIds(runtime);
+  const playOptions = useAppStore((state) => state.playOptions);
   const [intensity, setIntensity] = useState(0.6);
   const [target, setTarget] = useState<WindowFxTarget>("foreground");
   const [filter, setFilter] = useState<string>("all");
@@ -41,7 +44,12 @@ export function PlaygroundPage({ domain }: { domain: PlayDomain }) {
       await stop(p);
       return;
     }
-    const affected = await play(p, { intensity, target });
+    const custom = playOptions[p.id];
+    const affected = await play(p, {
+      intensity,
+      target,
+      options: custom?.count !== undefined ? { count: custom.count } : undefined,
+    });
     if (p.engine === "window") {
       toast(affected ? `已扰动 ${affected} 个窗口，结束后自动还原` : "没有找到可以扰动的窗口", affected ? "success" : "warn");
     }
@@ -170,8 +178,13 @@ function PlayCard({
 }) {
   const Icon = p.icon;
   const [confirm, setConfirm] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const active = count > 0;
   const toggleOff = p.mode === "persist" && active && !p.stackable;
+  const countSpec = p.params?.find((spec) => spec.id === "count");
+  const custom = useAppStore((state) => state.playOptions[p.id]);
+  const setPlayOption = useAppStore((state) => state.setPlayOption);
+  const customized = custom?.count !== undefined && countSpec !== undefined;
 
   useEffect(() => {
     if (!confirm) return;
@@ -186,6 +199,11 @@ function PlayCard({
       return;
     }
     setConfirm(false);
+    onTrigger(p);
+  };
+
+  const replay = async () => {
+    await stop(p);
     onTrigger(p);
   };
 
@@ -217,8 +235,10 @@ function PlayCard({
           </span>
         )}
         {!active && (
-          <span className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-full bg-[#4a8df8] text-white opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
-            <Play className="h-3.5 w-3.5" fill="currentColor" />
+          <span className="pointer-events-none absolute inset-0 grid place-items-center">
+            <span className="grid h-10 w-10 place-items-center rounded-full bg-[#4a8df8]/95 text-white opacity-0 shadow-[0_12px_24px_-12px_rgba(41,96,179,0.9)] transition-opacity group-hover:opacity-100">
+              <Play className="h-4 w-4" fill="currentColor" />
+            </span>
           </span>
         )}
         {confirm && (
@@ -237,17 +257,85 @@ function PlayCard({
               <TriangleAlert className="h-2.5 w-2.5" /> 惊吓
             </span>
           )}
+          {customized && <span className="rounded-full bg-[#e8f7ee] px-1.5 py-px text-[8.5px] font-semibold text-[#3f8f5c]">已调 ×{custom?.count}</span>}
           {p.hint && <span className="truncate rounded-full bg-[#fff7e6] px-1.5 py-px text-[8.5px] font-semibold text-[#b9832a]">{p.hint}</span>}
         </div>
       </div>
+      {countSpec && (
+        <button
+          type="button"
+          aria-label={`调整${p.name}的参数`}
+          title="调整参数"
+          onClick={() => setSettingsOpen(true)}
+          className="pressable absolute right-2 top-2 z-20 grid h-7 w-7 place-items-center rounded-full bg-white/92 text-[#5d7697] shadow-sm hover:bg-white hover:text-[#2f5b95]"
+        >
+          <Settings2 className="h-3.5 w-3.5" />
+        </button>
+      )}
       {active && p.mode === "persist" && (
         <button
           type="button"
           onClick={() => void stop(p)}
-          className="pressable absolute right-2 top-2 z-10 inline-flex h-6 items-center gap-1 rounded-full bg-white px-2 text-[9px] font-bold text-[#d8667a] shadow-sm"
+          className="pressable absolute bottom-2 right-2 z-20 inline-flex h-6 items-center gap-1 rounded-full bg-white px-2 text-[9px] font-bold text-[#d8667a] shadow-sm"
         >
           <Square className="h-2.5 w-2.5" fill="currentColor" /> 停止
         </button>
+      )}
+
+      {countSpec && (
+        <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+          <DialogContent className="max-w-[380px] rounded-[24px] border-white/80 bg-white/95">
+            <DialogHeader>
+              <DialogTitle className="font-display text-[17px]">调整 · {p.name}</DialogTitle>
+              <DialogDescription>参数会记住，之后每次播放都用这个值</DialogDescription>
+            </DialogHeader>
+            <div className="flex items-center gap-3 py-1">
+              <span className="w-16 shrink-0 text-[11.5px] font-semibold text-ink">{countSpec.label}</span>
+              <Slider
+                aria-label={countSpec.label}
+                value={[custom?.count ?? countSpec.default]}
+                min={countSpec.min}
+                max={countSpec.max}
+                step={countSpec.step ?? 1}
+                onValueChange={([v]) => setPlayOption(p.id, { count: v })}
+              />
+              <span className="w-9 text-right text-[11.5px] font-bold tabular-nums text-[#2e67ba]">{custom?.count ?? countSpec.default}</span>
+            </div>
+            <p className="text-[9.5px] text-ink-faint">
+              范围 {countSpec.min} – {countSpec.max}；未自定义时按强度自动选择
+            </p>
+            <DialogFooter className="gap-2">
+              {customized && (
+                <button
+                  type="button"
+                  onClick={() => setPlayOption(p.id, { count: undefined })}
+                  className="pressable inline-flex h-9 items-center gap-1.5 rounded-full border border-[#e2ecf9] bg-white px-3.5 text-[10.5px] font-semibold text-ink-soft hover:bg-[#f4f9ff]"
+                >
+                  <RotateCcw className="h-3 w-3" /> 恢复默认
+                </button>
+              )}
+              {active && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSettingsOpen(false);
+                    void replay();
+                  }}
+                  className="pressable inline-flex h-9 items-center gap-1.5 rounded-full bg-[#4a8df8] px-4 text-[10.5px] font-bold text-white hover:bg-[#3d80ea]"
+                >
+                  <Play className="h-3 w-3" fill="currentColor" /> 按新参数重播
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setSettingsOpen(false)}
+                className="pressable inline-flex h-9 items-center rounded-full border border-[#e2ecf9] bg-white px-4 text-[10.5px] font-semibold text-ink-soft hover:bg-[#f4f9ff]"
+              >
+                完成
+              </button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );

@@ -50,7 +50,24 @@ export type Playable = PlayEngine & {
   scary?: boolean;
   /** 可叠加多次 */
   stackable?: boolean;
+  /** 可调参数；声明后卡片出现设置按钮，在弹窗里调节 */
+  params?: PlayParamSpec[];
 };
+
+/** 一个可调参数。目前引擎支持数量（count），范围写给设置弹窗用 */
+export interface PlayParamSpec {
+  id: "count";
+  label: string;
+  min: number;
+  max: number;
+  step?: number;
+  /** 未自定义时的缺省值（也是“恢复默认”的回退值） */
+  default: number;
+}
+
+/** 数量参数的快捷构造 */
+export const countParam = (label: string, min: number, max: number, def: number): PlayParamSpec =>
+  ({ id: "count", label, min, max, default: def });
 
 export interface PlayCategory {
   id: string;
@@ -108,7 +125,9 @@ const win = (kind: WindowFxKind, name: string, description: string, icon: Lucide
 
 export const PLAYABLES: Playable[] = [
   // 庆祝
-  eff("fireworks", "celebrate", "全屏烟花", "金色亮粉、柳型、菊花轮番绽放", Sparkles, "once"),
+  eff("fireworks", "celebrate", "全屏烟花", "金色亮粉、柳型、菊花轮番绽放", Sparkles, "once", {
+    params: [countParam("烟花弹数", 1, 40, 12)],
+  }),
   eff("confetti", "celebrate", "彩带礼花", "两侧礼炮喷出彩纸", PartyPopper, "once"),
   eff("heart-rain", "celebrate", "爱心雨", "满屏飘落的爱心", Heart, "once"),
   eff("magic", "celebrate", "魔法阵", "旋转的魔法阵与光点", WandSparkles, "once"),
@@ -138,8 +157,13 @@ export const PLAYABLES: Playable[] = [
   { engine: "combo", kind: "missile-strike", id: "combo:missile-strike", category: "spectacle", name: "导弹袭击", description: "导弹命中 → 爆炸 → 震屏 → 屏幕裂开", icon: Bomb, mode: "once" },
   eff("smoke", "spectacle", "全屏烟雾", "浓烟翻滚后慢慢散去", Tornado, "once"),
   // 观赏生灵
-  prk("goldfish", "companion", "金鱼", "在桌面上游来游去", Fish, { hint: "鼠标靠近会游开，点击冲刺" }),
-  prk("butterfly", "companion", "蝴蝶", "扇着翅膀飞舞、停落", Feather),
+  prk("goldfish", "companion", "金鱼", "在桌面上游来游去", Fish, {
+    hint: "鼠标靠近会游开，点击冲刺",
+    params: [countParam("金鱼数量", 1, 20, 5)],
+  }),
+  prk("butterfly", "companion", "蝴蝶", "扇着翅膀飞舞、停落", Feather, {
+    params: [countParam("蝴蝶数量", 1, 15, 4)],
+  }),
   // 屏幕整蛊
   prk("crack", "screen", "屏幕裂痕", "像被砸了一下", Zap),
   prk("shatter", "screen", "屏幕破碎", "整块玻璃碎裂", MonitorX),
@@ -148,22 +172,55 @@ export const PLAYABLES: Playable[] = [
   prk("graffiti", "screen", "屏幕涂鸦", "被人用马克笔画了几笔", PenTool),
   prk("tape", "screen", "胶带", "屏幕上贴了几条胶带", Scissors, { hint: "点击撕掉" }),
   // 系统恶搞
-  prk("error-popups", "system", "系统错误弹窗", "Win95 风格的错误窗口层层叠叠", TriangleAlert, { hint: "点 OK 关闭" }),
-  prk("panda-virus", "system", "熊猫烧香", "桌面图标被“感染”，结束后恢复", Biohazard, { hint: "点击杀毒", stackable: false }),
+  prk("error-popups", "system", "系统错误弹窗", "Win95 风格的错误窗口层层叠叠", TriangleAlert, {
+    hint: "点 OK 关闭",
+    params: [countParam("弹窗数量", 1, 60, 16)],
+  }),
+  prk("panda-virus", "system", "熊猫烧香", "桌面图标被“感染”，结束后恢复", Biohazard, {
+    hint: "点击杀毒",
+    stackable: false,
+    params: [countParam("感染图标数", 6, 120, 40)],
+  }),
   eff("hacker", "system", "黑客入侵", "代码雨、警告、进度条", Terminal, "once"),
   eff("tv-static", "system", "电视雪花屏", "信号丢失的雪花噪点", Tv, "once"),
   // 桌面爬虫
-  prk("cockroach", "critters", "蟑螂", "会躲鼠标的小强", Bug, { hint: "点击拍死" }),
-  prk("centipede", "critters", "蜈蚣", "分节背甲、波浪步足", Worm, { hint: "点击拍死" }),
-  prk("millipede", "critters", "千足虫", "受惊会卷成一团", Snail),
-  prk("maggot", "critters", "蛆", "一扭一扭地爬", Worm),
-  prk("gecko", "critters", "壁虎", "对角迈步，竖瞳盯着你", Squirrel),
-  prk("fly", "critters", "苍蝇", "嗡嗡乱飞，时不时停下搓手", Bug),
-  prk("ant", "critters", "蚂蚁队列", "排着队搬家", Shrimp),
+  prk("cockroach", "critters", "蟑螂", "会躲鼠标的小强", Bug, {
+    hint: "点击拍死",
+    params: [countParam("蟑裂数量", 1, 30, 3)],
+  }),
+  prk("centipede", "critters", "蜈蚣", "分节背甲、波浪步足", Worm, {
+    hint: "点击拍死",
+    params: [countParam("蜈蚣数量", 1, 10, 1)],
+  }),
+  prk("millipede", "critters", "千足虫", "受惊会卷成一团", Snail, {
+    params: [countParam("千足虫数量", 1, 15, 2)],
+  }),
+  prk("maggot", "critters", "蛆", "一扭一扭地爬", Worm, {
+    params: [countParam("蛆虫数量", 1, 40, 8)],
+  }),
+  prk("gecko", "critters", "壁虎", "对角迈步，竖瞳盯着你", Squirrel, {
+    params: [countParam("壁虎数量", 1, 8, 1)],
+  }),
+  prk("fly", "critters", "苍蝇", "嗡嗡乱飞，时不时停下搓手", Bug, {
+    params: [countParam("苍蝇数量", 1, 20, 2)],
+  }),
+  prk("ant", "critters", "蚂蚁队列", "排着队搬家", Shrimp, {
+    params: [countParam("蚂蚁数量", 5, 80, 25)],
+  }),
   // 惊吓
-  prk("horror-blood", "horror", "血迹流淌", "从屏幕顶端缓缓流下", Droplets, { scary: true }),
-  prk("horror-eyes", "horror", "偷窥的眼睛", "黑暗里的眼睛跟着鼠标转", Eye, { scary: true, hint: "跟随鼠标" }),
-  prk("horror-hands", "horror", "血手印", "一个接一个按在屏幕上", Hand, { scary: true }),
+  prk("horror-blood", "horror", "血迹流淌", "从屏幕顶端缓缓流下", Droplets, {
+    scary: true,
+    params: [countParam("血迹数量", 1, 40, 12)],
+  }),
+  prk("horror-eyes", "horror", "偷窥的眼睛", "黑暗里的眼睛跟着鼠标转", Eye, {
+    scary: true,
+    hint: "跟随鼠标",
+    params: [countParam("眼睛对数", 1, 12, 4)],
+  }),
+  prk("horror-hands", "horror", "血手印", "一个接一个按在屏幕上", Hand, {
+    scary: true,
+    params: [countParam("手印数量", 1, 20, 5)],
+  }),
   prk("horror-ghost", "horror", "鬼影闪现", "站立、探头、逼近", Ghost, { scary: true }),
   prk("horror-scrawl", "horror", "恐怖涂鸦", "血字一笔一笔写出来", Footprints, { scary: true }),
   // 屏幕震荡
