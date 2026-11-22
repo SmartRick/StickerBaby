@@ -7,3 +7,4 @@
 - [brand-and-fonts.md](brand-and-fonts.md) — 品牌名、图标、字体选择与子集化/加载验证
 - [image-assets.md](image-assets.md) — 贴纸裁剪与 WebP 流程、创建贴纸抠图基准和 Rust 原生推理验证
 - [windows-packaging.md](windows-packaging.md) — 中文产品名触发 WiX LGHT0311 时的打包配置与产物验证
+- [overlay-engine.md](overlay-engine.md) — 悬浮层引擎结构、事件监听与置顶的坑、调试方法

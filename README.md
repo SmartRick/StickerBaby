@@ -5,28 +5,38 @@
 
 ## 功能
 
-### 桌面悬浮层
-- **单窗口、单 WebView2**：全屏透明层里渲染所有宠物，不为每只宠物创建独立窗口。
-- **原生 Region 穿透**：Windows 的窗口 Region 只保留宠物和右键菜单的矩形；屏幕其余区域根本不属于这个窗口，**不会挡住任何操作**。
-- **始终置顶**：宠物层会显示在普通应用窗口上方；启动时会主动抬到置顶层的最前面。
-- **锁定贴纸**：右键可锁定单张贴纸。锁定后贴纸仍显示，鼠标点击会穿透，拖动和缩放暂停。
-- **右键拖拽缩放**：右键按住宠物左右或上下拖拽即可调整大小；有最小 20% / 最大 250% 的阈值，并可按菜单恢复默认大小。
-- **全局锁定**：临时锁定所有桌面贴纸。`Ctrl+Alt+P` 可切换全局锁定。
-- **自动降低透明度**：鼠标离开后渐隐到设定透明度，移入恢复；延迟与最低透明度可调。
-- **精准命中**：只有宠物/菜单矩形会被窗口接收，其余位置点击直达桌面。
-- **无浏览器右键菜单**：WebView2 自带的刷新/另存为/检查等菜单已在原生层关闭。
+### 信息架构
 
-### 主界面
-- **首页**：天空草地 Hero（3 张 banner 背景）、AI 房间背景展示台（3 张房间图可切换）、贴纸仓库、分类筛选、分享、添加到桌面。
-- **我的贴纸**：24 只贴纸全量浏览，搜索 / 分类筛选。
-- **动态贴纸**：12 只带呼吸、摇摆、浮动动画的宠物，可一键放 3 只到桌面。
-- **设置**：全局锁定、显隐、自动渐隐、大小、减少动效、快捷键、清空桌面、退出，并带实时预览。
+```
+首页
+贴纸   贴纸库 · 创建贴纸（图片抠图 / 视频贴纸 / AI）· 我的桌面（每张贴纸的摆放、中键互动、点击粒子；运动与行为）
+玩法   全屏特效 · 恶作剧 · 屏幕扰动
+设置
+```
 
-### 系统集成
-- 系统托盘：打开主界面 / 显示隐藏宠物 / 切换全局锁定 / 退出。
-- 全局快捷键：`Ctrl+Alt+P` 切换全局锁定。
-- 关闭主窗口不会退出应用，而是收进托盘；宠物继续留在桌面上。
-- 设置、宠物位置/大小、收藏通过 `localStorage` + `BroadcastChannel` 在两个窗口间实时同步。
+- 贴纸内容：主题包 → 角色 → 状态（`lib/packs.ts`、`lib/stickers.ts`、`lib/characters.ts`），格式有静态 / Rive 动态 / 视频。
+- 玩法目录：`domain/playables.ts`，领域（页面）→ 分类 → 玩法，与引擎实现解耦；新增玩法 = 引擎注册工厂 + 目录加一条。
+
+### 桌面悬浮层（`src/overlay/`，原生 TS 引擎）
+
+- 两个全屏透明窗口共用一套引擎：`pet` 置顶层（置顶贴纸 + 特效 / 恶作剧 / 扰动），`pet-desktop` 桌面层（取消置顶的贴纸，在所有窗口之下）。
+- 默认点击穿透；Rust 120Hz 轮询全局光标推给两层，前端按贴纸 alpha 像素级命中，只在命中时关闭本窗口穿透。保留 `WS_EX_LAYERED + LWA_ALPHA=254`、`WS_EX_NOACTIVATE`，点贴纸不抢焦点、不会让浏览器视频暂停。桌面层被应用窗口盖住时不响应。
+- 贴纸：DOM 渲染，静止零重绘。单击 Q 弹 + 粒子 + 台词，双击转圈，来回蹭抚摸，中键手势，拖拽拎起倾斜拉伸，甩出惯性滑行撞边回弹；右键拖动缩放、单击右键菜单；滚轮缩放、Shift+滚轮旋转。多状态角色按拖拽 / 点击 / 闲置切换姿势；Rive 动态贴纸；视频贴纸 WebGL 绿幕抠像。
+- 运动模式：悬浮（拖到哪停在哪）/ 桌面（直接跟手，甩出摩擦滑行、撞边挤压回弹，默认）/ 太空（无重力漂浮）/ 重力（下落堆叠）。太空和重力用 Matter.js 弹簧拖拽（抓偏心会转、能撞开别的贴纸）；桌面 / 太空 / 重力各自可开关“贴纸之间碰撞”，刚体是 alpha 轮廓的凸包（不用逐行条带复合体：两个条带体互相嵌入时推力会抵消，分不开）。贴纸互撞不加 Q 弹，只有桌面模式撞墙有挤压。
+- 点击粒子两级设置：贴纸库详情里改这款贴纸的默认，“我的桌面”里可以给单张覆盖；中键手势在“我的桌面”逐张设置。
+- 首页“常用推荐”按使用记录排序（最近贴过、贴得多、正在桌面上的在前）。
+- 锁定 = 点击穿透；悬停锁定贴纸 1.2 秒出现“解锁”。全局锁定、自动变淡、隐藏贴纸。
+- 全屏特效 / 恶作剧 / 屏幕扰动（截屏 + 着色器）/ 真实窗口扰动（结束、清场、退出时精确还原），见各玩法页。
+
+### 快捷键 / 托盘
+
+- `Ctrl+Alt+P` 全局锁定，`Ctrl+Alt+Q` 一键清场，`Ctrl+Alt+F12` 隐藏 / 显示悬浮层；被占用时只打印日志，不影响启动。
+- 托盘：打开主界面 / 贴纸库 / 全屏特效 / 设置、显示贴纸、全局锁定、运动模式、一键清场、退出。关闭主窗口只收进托盘。
+
+### 状态同步
+
+- 贴纸实例与设置：zustand + `localStorage` + `BroadcastChannel`，主界面与两个悬浮层共享；悬浮层只在贴纸停稳时回写位置。
+- 玩法指令 / 运行状态：Tauri 事件 `sb://cmd` / `sb://state`（`shared/protocol.ts`、`lib/overlay-client.ts`）。
 
 ## 开发
 
@@ -43,30 +53,26 @@ pnpm tauri build   # 打安装包
 ## 目录
 
 ```
-src/
-  app/main-window.tsx       主窗口外壳与页面路由
-  app/pet-window.tsx        全屏透明宠物层
-  components/pet-sprite.tsx 单只宠物：拖动、右键缩放、互动气泡、右键菜单
-  hooks/use-pet-hit-rects.ts 把可点击区域与阴影留白上报给原生 Region
-  hooks/use-overlay-effects.ts 设置 → 原生窗口；托盘/快捷键事件 → 设置
-  lib/store.ts              共享状态（设置、桌面宠物）
-  lib/stickers.ts           贴纸目录与素材映射
-  assets/stickers/*.webp    24 张透明贴纸
-  assets/rooms/*.webp       3 张首页展示台背景
-  assets/banners/*.webp     3 张首页 banner 背景
-  assets/greeting/*.webp    6 张左侧打招呼图
-  assets/brand/             软件图标 / 品牌素材
-  assets/fonts/*.woff2      子集化中文字体
-src-tauri/
-  src/overlay.rs            透明覆盖层、置顶/置底、显隐
-  src/platform/hit_test.rs  Windows 窗口 Region（宠物矩形 + 阴影留白）
-  src/platform/click_through.rs 无焦点提升、WebView2 默认菜单关闭、重绘
-  src/lib.rs                命令、托盘、全局快捷键、窗口生命周期
-design/
-  stickers/                 贴纸裁切工作副本
-  waving/                   招手动物裁切工作副本
-  sticker-baby-logo.png     软件图标原图
+overlay.html / src/overlay/   悬浮层引擎（core 运行时、stickers 贴纸、effects 特效、pranks 恶作剧、distort 扰动）
+src/shared/protocol.ts       主界面 <-> 悬浮层协议
+src/domain/                  玩法目录与播放
+src/lib/overlay-client.ts    主界面调用悬浮层的入口
+src/components/              页面（playground-page 玩法页、desktop-page 我的桌面……）
+public/assets/               特效图集（scripts 生成）
+src-tauri/src/
+  overlay.rs                 两层悬浮层、光标轮询、穿透切换、显示器
+  capture.rs                 GDI 截屏（屏幕扰动）
+  window_fx.rs               真实窗口扰动与还原
+  desktop.rs                 桌面图标显隐（熊猫烧香）
+  sticker_creation.rs        自制贴纸（图片抠图 / 视频）
 ```
+
+玩法卡片缩略图：先 `pnpm dev`，再 `node scripts/capture-thumbs.mjs [前缀...]`，在无头 Chrome 里实际渲染每个玩法并截一帧到 `src/assets/playables/`。
+
+物理调试：`node scripts/probe-physics.mjs gravity` 让桌面贴纸一起落下，统计静止后刚体之间的重叠深度。
+
+调试：`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222 pnpm tauri dev`，然后
+`node scripts/cdp.mjs "layer=floating" "__sb.handle({type:'effect.play',kind:'fireworks'})"`；`python scripts/desk.py shot out.png` 截屏 / 模拟鼠标。
 
 ## 素材说明
 
