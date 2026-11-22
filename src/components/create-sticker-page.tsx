@@ -518,8 +518,7 @@ export function CreateStickerPage({ onOpenLibrary }: { onOpenLibrary: () => void
   const [tab, setTab] = useState<(typeof TABS)[number]>("贴纸制作");
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden px-0.5 pb-4">
-      <header className="flex flex-wrap items-center justify-between gap-2 pb-4 pt-2.5">
-        <h2 className="font-display text-[22px] font-semibold tracking-tight text-ink">创建贴纸</h2>
+      <header className="flex justify-end pb-4 pt-2.5">
         <Segmented options={TABS} value={tab} onChange={setTab} className="min-w-[260px]" />
       </header>
       <div hidden={tab !== "贴纸制作"} className="min-h-0 flex-1">

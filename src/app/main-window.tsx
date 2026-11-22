@@ -9,6 +9,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useOverlayEffects } from "@/hooks/use-overlay-effects";
 import { invokeSafe, onAppEvent } from "@/lib/tauri";
 import { pageFromHash, type PageKey } from "@/lib/pages";
+import { useUiStore } from "@/lib/ui";
 import { DesktopPage } from "@/components/desktop-page";
 import { PlaygroundPage } from "@/components/playground-page";
 import { cn } from "@/lib/utils";
@@ -32,15 +33,15 @@ function AmbientBackdrop() {
 }
 
 export function MainWindow() {
-  const [page, setPage] = useState<PageKey>(() => pageFromHash(window.location.hash));
+  const page = useUiStore((state) => state.page);
+  const navigateUi = useUiStore((state) => state.navigate);
   const [openPackPickerInitially, setOpenPackPickerInitially] = useState(() => window.location.hash === "#packs");
   useOverlayEffects();
 
   const navigate = useCallback((next: PageKey) => {
     setOpenPackPickerInitially(false);
-    setPage(next);
-    window.history.replaceState(null, "", `#${next}`);
-  }, []);
+    navigateUi(next);
+  }, [navigateUi]);
 
   useEffect(() => onAppEvent<PageKey>("tray:navigate", (next) => {
     navigate(pageFromHash(next));

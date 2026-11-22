@@ -48,11 +48,7 @@ export function DesktopPage({ onOpenLibrary }: { onOpenLibrary: () => void }) {
   const [tab, setTab] = useState<Tab>("桌面上的贴纸");
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
-      <header className="flex flex-wrap items-end justify-between gap-3 px-1">
-        <div>
-          <h2 className="font-display text-[18px] font-semibold tracking-tight text-ink">我的桌面</h2>
-          <p className="mt-0.5 text-[10.5px] text-ink-soft">桌面上每张贴纸的设置，以及它们怎么动</p>
-        </div>
+      <header className="flex justify-end px-1">
         <Segmented options={TABS} value={tab} onChange={setTab} className="min-w-[240px]" />
       </header>
       {tab === "桌面上的贴纸" ? (

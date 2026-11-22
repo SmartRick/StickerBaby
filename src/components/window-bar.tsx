@@ -1,31 +1,20 @@
 import { useEffect, useState } from "react";
-import { Maximize2, Minus, PawPrint, Square, Trash2, LockKeyhole, X, Zap } from "lucide-react";
+import { Maximize2, Minus, RotateCcw, Square, X, Zap } from "lucide-react";
 import { clearAll, runningCount, useOverlayRuntime } from "@/lib/overlay-client";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { StickerImage } from "@/components/sticker-image";
+import { PAGE_TITLES } from "@/lib/pages";
+import { useUiStore } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { appWindow, inTauri } from "@/lib/tauri";
-import { findSticker, useAppStore } from "@/lib/store";
-import { packShort } from "@/lib/packs";
-import { toast } from "@/lib/toast";
+import { useAppStore } from "@/lib/store";
 
 export function WindowBar() {
   const [maximized, setMaximized] = useState(false);
-  const [petsOpen, setPetsOpen] = useState(false);
   const passthrough = useAppStore((state) => state.settings.passthrough);
   const overlayVisible = useAppStore((state) => state.settings.overlayVisible);
   const pets = useAppStore((state) => state.pets);
-  const created = useAppStore((state) => state.createdStickers);
-  const clearPets = useAppStore((state) => state.clearPets);
-  const removePet = useAppStore((state) => state.removePet);
-  const updatePet = useAppStore((state) => state.updatePet);
+  const page = useUiStore((state) => state.page);
+  const meta = useUiStore((state) => state.meta);
+  const navigate = useUiStore((state) => state.navigate);
 
   useEffect(() => {
     if (!inTauri) return;
@@ -48,7 +37,7 @@ export function WindowBar() {
 
   const running = runningCount(useOverlayRuntime());
   const status = passthrough
-    ? "全局锁定 · 点击直达桌面"
+    ? "全局锁定 · 贴纸仍可见"
     : overlayVisible
       ? `贴纸宝宝 · ${pets.length > 0 ? `${pets.length} 张在线` : "等待贴纸"}`
       : "贴纸宝宝已隐藏";
@@ -58,12 +47,31 @@ export function WindowBar() {
       className="flex h-11 shrink-0 items-center justify-between gap-3 pl-6 pr-3"
       data-tauri-drag-region
     >
-      <div className="flex min-w-0 items-center gap-2">
+      {/* 左侧：当前页面标题 + 页面统计 / 快捷操作（由各页面报到顶栏） */}
+      <div className="flex min-w-0 items-center gap-2.5" data-tauri-drag-region>
+        <h1 data-tauri-drag-region className="truncate font-display text-[15px] font-bold tracking-tight text-ink">
+          {PAGE_TITLES[page].title}
+        </h1>
+        {meta.stats && <span className="truncate text-[11px] font-medium text-ink-soft">{meta.stats}</span>}
+        {meta.stats && meta.actionLabel && meta.onAction && (
+          <button
+            type="button"
+            onClick={meta.onAction}
+            className="pressable inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-semibold text-[#456f9f] hover:bg-[#e6f1ff]"
+          >
+            <RotateCcw className="size-3" aria-hidden />
+            {meta.actionLabel}
+          </button>
+        )}
+      </div>
+
+      <div className="flex items-center gap-1.5" data-tauri-drag-region>
+        {/* 贴纸状态：点击前往“我的桌面”管理页 */}
         <button
           type="button"
-          onClick={() => setPetsOpen(true)}
-          className="pressable flex min-w-0 items-center gap-2 rounded-full px-1 py-0.5 text-left text-[11.5px] text-ink-faint hover:text-ink-soft"
-          title="查看桌面上的贴纸"
+          onClick={() => navigate("desktop")}
+          title="管理桌面上的贴纸"
+          className="pressable flex min-w-0 items-center gap-1.5 rounded-full border border-white/70 bg-white/55 py-1 pl-2.5 pr-2.5 text-[10.5px] font-semibold text-ink-soft hover:bg-white/85 hover:text-ink"
         >
           <span
             className={cn(
@@ -73,28 +81,15 @@ export function WindowBar() {
           />
           <span className="truncate">{status}</span>
         </button>
-        <button
-          type="button"
-          aria-label="一键清空桌面贴纸"
-          title="一键清空桌面贴纸"
-          disabled={pets.length === 0}
-          onClick={() => {
-            clearPets();
-            toast("桌面已经收拾干净啦", "success");
-          }}
-          className="pressable grid h-6 w-6 place-items-center rounded-full text-ink-faint hover:bg-rose-500/10 hover:text-rose-500 disabled:opacity-30"
-        >
-          <Trash2 className="h-3 w-3" strokeWidth={2.2} />
-        </button>
-      </div>
 
-      <div className="flex items-center gap-1.5" data-tauri-drag-region>
+        <span aria-hidden className="mx-0.5 h-4 w-px shrink-0 bg-[#d8e4f2]" />
+
         {running > 0 && (
           <button
             type="button"
             onClick={() => void clearAll()}
             title="一键清场（Ctrl+Alt+Q）"
-            className="pressable mr-1 inline-flex h-7 items-center gap-1.5 rounded-full border border-[#ffd9de] bg-[#fff5f6] px-3 text-[10.5px] font-bold text-[#d8667a] hover:bg-[#ffeef0]"
+            className="pressable inline-flex h-7 items-center gap-1.5 rounded-full border border-[#ffd9de] bg-[#fff5f6] px-3 text-[10.5px] font-bold text-[#d8667a] hover:bg-[#ffeef0]"
           >
             <Zap className="h-3 w-3" />
             {running} 个玩法运行中 · 清场
@@ -132,106 +127,6 @@ export function WindowBar() {
           <X className="h-[15px] w-[15px]" strokeWidth={2.2} />
         </button>
       </div>
-
-      <Dialog open={petsOpen} onOpenChange={setPetsOpen}>
-        <DialogContent className="max-w-[430px] rounded-[26px] border-white/80 bg-white/95">
-          <DialogHeader>
-            <DialogTitle className="font-display text-[18px]">桌面上的贴纸</DialogTitle>
-            <DialogDescription>
-              当前桌面有 {pets.length} 张贴纸，可以单独移除。
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="max-h-[300px] space-y-2 overflow-y-auto pr-1">
-            {pets.length > 0 ? (
-              pets.map((pet) => {
-                const sticker = findSticker(pet.stickerId, created);
-                return (
-                  <div
-                    key={pet.id}
-                    className="flex items-center gap-3 rounded-[18px] border border-white/80 bg-white/65 p-2.5"
-                  >
-                    <span className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-[14px] bg-[#eef5ff]">
-                      {sticker ? (
-                        <StickerImage sticker={sticker} className="h-10 w-10" />
-                      ) : (
-                        <PawPrint className="h-5 w-5 text-ink-faint" />
-                      )}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[12px] font-bold text-ink">
-                        {sticker?.name ?? "未知贴纸"}
-                      </p>
-                      <p className="mt-0.5 text-[9.5px] text-ink-faint">
-                        {sticker ? packShort(sticker.packId) : "桌面"} ·{" "}
-                        {Math.round(pet.scale * 100)}%{pet.passthrough ? " · 已锁定" : ""}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      aria-label={pet.passthrough ? "解锁这张贴纸" : "锁定这张贴纸"}
-                      title={pet.passthrough ? "解锁" : "锁定（点击穿透）"}
-                      onClick={() =>
-                        updatePet(pet.id, { passthrough: !pet.passthrough })
-                      }
-                      className={cn(
-                        "pressable grid h-8 w-8 place-items-center rounded-full",
-                        pet.passthrough
-                          ? "bg-[#fff6e3] text-[#b8862f]"
-                          : "text-ink-faint hover:bg-[#eef5ff] hover:text-[#4a7fc5]"
-                      )}
-                    >
-                      <LockKeyhole className="h-3.5 w-3.5" strokeWidth={2.2} />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="移除这张贴纸"
-                      onClick={() => {
-                        removePet(pet.id);
-                        toast(
-                          `${sticker?.name ?? "贴纸"} 已经回到贴纸库啦`,
-                          "success"
-                        );
-                      }}
-                      className="pressable grid h-8 w-8 place-items-center rounded-full text-ink-faint hover:bg-[#fff1f3] hover:text-[#e0687c]"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" strokeWidth={2.2} />
-                    </button>
-                  </div>
-                );
-              })
-            ) : (
-              <div className="grid place-items-center rounded-[18px] border border-dashed border-[#d9e5f4] bg-white/50 py-8 text-center">
-                <PawPrint className="h-6 w-6 text-ink-faint" />
-                <p className="mt-2 text-[11px] font-semibold text-ink-soft">桌面上还没有贴纸</p>
-                <p className="mt-0.5 text-[9.5px] text-ink-faint">去贴纸库挑一张吧</p>
-              </div>
-            )}
-          </div>
-
-          <DialogFooter className="gap-2">
-            {pets.length > 0 && (
-              <button
-                type="button"
-                onClick={() => {
-                  clearPets();
-                  toast("桌面已经收拾干净啦", "success");
-                }}
-                className="pressable inline-flex h-9 items-center gap-1.5 rounded-full border border-[#ffd9de] bg-[#fff5f6] px-4 text-[10.5px] font-bold text-[#d8667a] hover:bg-[#ffeef0]"
-              >
-                <Trash2 className="h-3 w-3" /> 全部清空
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => setPetsOpen(false)}
-              className="pressable inline-flex h-9 items-center rounded-full bg-[#4a8df8] px-5 text-[10.5px] font-bold text-white hover:bg-[#3d80ea]"
-            >
-              关闭
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

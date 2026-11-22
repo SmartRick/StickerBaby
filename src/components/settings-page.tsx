@@ -63,10 +63,6 @@ export function SettingsPage() {
   return (
     <div className="flex h-full min-h-0 gap-4">
       <div className="min-h-0 flex-1 space-y-3.5 overflow-y-auto pr-1 pb-1">
-        <div className="flex items-end justify-between gap-3 px-1">
-          <h2 className="font-display text-[18px] font-semibold tracking-tight text-ink">偏好设置</h2>
-        </div>
-
         {settings.passthrough && (
           <div className="flex items-center justify-between gap-3 rounded-[20px] border border-[#ffe1a8] bg-[#fff8e9]/90 px-4 py-3 text-[10.5px] text-[#8a6420] shadow-soft backdrop-blur">
             <span className="flex items-center gap-2">

@@ -1,11 +1,10 @@
-import { useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Popover } from "radix-ui";
 import {
   ChevronRight,
   Layers,
   MonitorUp,
   Pencil,
-  RotateCcw,
   Search,
   SlidersHorizontal,
   Trash2,
@@ -25,6 +24,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { StickerEffectsSection } from "@/components/sticker-effects-section";
 import { useStickerCatalog } from "@/hooks/use-sticker-catalog";
 import { useAppStore } from "@/lib/store";
+import { useUiStore } from "@/lib/ui";
 import { deleteCreatedSticker } from "@/lib/created-stickers";
 import { CHARACTERS, characterHasAnimated, type StickerCharacter } from "@/lib/characters";
 import { packOf } from "@/lib/packs";
@@ -416,16 +416,17 @@ export function LibraryPage({ openPackPickerInitially }: { openPackPickerInitial
     results.current?.scrollTo({ top: 0 });
   };
 
-  const clearFilters = () => {
+  const clearFilters = useCallback(() => {
     setQuery("");
-    choosePack("all");
+    setPackId("all");
     setSubject("all");
     setStyle("all");
     setMood("all");
     setFormat("all");
     setMultiStateOnly(false);
     setCreatedOnly(false);
-  };
+    results.current?.scrollTo({ top: 0 });
+  }, []);
 
   const list = useMemo(() => {
     const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -471,29 +472,20 @@ export function LibraryPage({ openPackPickerInitially }: { openPackPickerInitial
     });
   }, [catalog, createdOnly, format, mood, multiStateOnly, packId, query, style, subject]);
 
+  // 页面标题移到了顶栏（WindowBar），这里只把统计与“清除筛选”报到顶栏
+  const setPageMeta = useUiStore((state) => state.setPageMeta);
+  useEffect(() => {
+    setPageMeta({
+      stats: `${list.length} 个角色${!hasFilters ? ` · ${STICKERS.length + createdCount} 张图` : ""}`,
+      actionLabel: hasFilters ? "清除筛选" : undefined,
+      onAction: hasFilters ? clearFilters : undefined,
+    });
+  }, [list.length, hasFilters, createdCount, clearFilters, setPageMeta]);
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="shrink-0 px-0.5 pt-2 pb-3">
-        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-          <h2 className="font-display text-[22px] leading-8 font-semibold tracking-tight text-ink">我的贴纸</h2>
-          <div className="flex items-center gap-3">
-            <span role="status" className="text-[11px] font-medium text-ink-soft">
-              {list.length} 个角色{!hasFilters && ` · ${STICKERS.length + createdCount} 张图`}
-            </span>
-            {hasFilters && (
-              <button
-                type="button"
-                onClick={clearFilters}
-                className="inline-flex items-center gap-1 rounded-md px-1 py-1 text-[11px] font-semibold text-[#456f9f] hover:bg-[#e6f1ff]"
-              >
-                <RotateCcw className="size-3" aria-hidden />
-                清除筛选
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="mt-2.5 flex flex-wrap items-center gap-2" role="group" aria-label="筛选贴纸">
+        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="筛选贴纸">
           <div className="relative min-w-40 flex-[1_1_12rem]">
             <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-faint" aria-hidden />
             <Input

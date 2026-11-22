@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AppWindow, Gauge, Play, Square, TriangleAlert, Zap } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
-import { categoriesOf, DOMAINS, playablesOf, runningIds, thumbOf, type Playable, type PlayCategory, type PlayDomain } from "@/domain/playables";
+import { categoriesOf, playablesOf, runningIds, thumbOf, type Playable, type PlayCategory, type PlayDomain } from "@/domain/playables";
 import { play, stop, stopDomain } from "@/domain/play";
 import { useOverlayRuntime } from "@/lib/overlay-client";
 import { toast } from "@/lib/toast";
@@ -13,7 +13,6 @@ import type { WindowFxTarget } from "@/shared/protocol";
  * 常驻类再点一次停止；顶部是强度、窗口扰动对象和“全部停止”。
  */
 export function PlaygroundPage({ domain }: { domain: PlayDomain }) {
-  const meta = DOMAINS[domain];
   const categories = categoriesOf(domain);
   const runtime = useOverlayRuntime();
   const running = runningIds(runtime);
@@ -50,11 +49,7 @@ export function PlaygroundPage({ domain }: { domain: PlayDomain }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
-      <header className="flex flex-wrap items-end justify-between gap-3 px-1">
-        <div>
-          <h2 className="font-display text-[18px] font-semibold tracking-tight text-ink">{meta.title}</h2>
-          <p className="mt-0.5 text-[10.5px] text-ink-soft">{meta.subtitle}</p>
-        </div>
+      <header className="flex flex-wrap items-center justify-end gap-3 px-1">
         <div className="flex flex-wrap items-center gap-2">
           {domain === "disturb" && (
             <div className="flex items-center gap-1 rounded-full border border-white/70 bg-white/55 p-1" title="窗口扰动作用于哪些窗口">
