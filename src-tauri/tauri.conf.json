@@ -11,28 +11,17 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [
-      {
-        "label": "main",
-        "title": "贴纸宝宝",
-        "width": 1180,
-        "height": 800,
-        "minWidth": 1040,
-        "minHeight": 700,
-        "center": true,
-        "resizable": true,
-        "decorations": false,
-        "transparent": true,
-        "shadow": false,
-        "visible": false,
-        "dragDropEnabled": false
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPLOCALDATA/stickers/**", "$APPLOCALDATA/models/*.onnx"]
+        "scope": [
+          "$EXE/data/stickers/**",
+          "$EXE/data/models/*.onnx",
+          "$APPLOCALDATA/stickers/**",
+          "$APPLOCALDATA/models/*.onnx"
+        ]
       }
     }
   },

@@ -42,11 +42,7 @@ fn ensure_creator(window: &WebviewWindow) -> Result<(), String> {
 }
 
 fn app_directory(app: &AppHandle, subdirectory: &str) -> Result<PathBuf, String> {
-    let path = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|error| error.to_string())?
-        .join(subdirectory);
+    let path = crate::data_dir::app_data_root(app).join(subdirectory);
     fs::create_dir_all(&path).map_err(|error| error.to_string())?;
     Ok(path)
 }

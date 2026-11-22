@@ -9,6 +9,7 @@
 //! 贴纸摆放与设置通过前端共享状态同步。
 
 mod capture;
+mod data_dir;
 mod desktop;
 mod overlay;
 mod platform;
@@ -87,19 +88,39 @@ pub fn run() {
                 }
             }
             let handle = app.handle().clone();
+
+            // 主窗口：创建前置一次数据目录（触发旧数据搬迁），WebView 配置跟随软件
+            let mut main = tauri::WebviewWindowBuilder::new(
+                &handle,
+                "main",
+                tauri::WebviewUrl::App("index.html".into()),
+            )
+            .title("贴纸宝宝")
+            .inner_size(1180.0, 800.0)
+            .min_inner_size(1040.0, 700.0)
+            .center()
+            .resizable(true)
+            .decorations(false)
+            .transparent(true)
+            .shadow(false)
+            .visible(false)
+            .drag_and_drop(false);
+            if let Some(dir) = data_dir::webview_dir() {
+                main = main.data_directory(dir);
+            }
+            let main = main.build()?;
+
+            let window = main.clone();
+            main.on_window_event(move |event| {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    // 关闭主界面只收进托盘，贴纸继续留在桌面上
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            });
+
             overlay::create(&handle)?;
             overlay::spawn_cursor_tracker(handle.clone());
-
-            if let Some(main) = app.get_webview_window("main") {
-                let window = main.clone();
-                main.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        // 关闭主界面只收进托盘，贴纸继续留在桌面上
-                        api.prevent_close();
-                        let _ = window.hide();
-                    }
-                });
-            }
 
             tray::create(&handle)?;
 

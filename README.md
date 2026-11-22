@@ -81,6 +81,18 @@ src-tauri/src/
 首页展示台的 3 张房间背景位于 `src/assets/rooms/`。
 `design/stickers/` 保留了裁切工作副本，方便后续继续替换。
 
+## 数据与存储（绿色便携）
+
+- 自创贴纸、AI 抠图模型、WebView 配置（设置与贴纸摆放的 localStorage）都存在
+  **软件目录旁的 `data\`**（`data\stickers`、`data\models`、`data\webview`），
+  跟着软件走，不占系统盘；整个目录一起拷走即完成迁移。
+- `data\` 写不进去（例如装在 Program Files）时自动退回系统 `AppData\Local\com.deskpet.app`。
+- 从旧版升级：首次启动会自动把 AppData 里已有的自创贴纸复制过来、模型搬过来
+  （贴纸保留原件，模型搬完删除），AppData 里的旧 WebView 缓存（EBWebView）不再使用，
+  确认无虞后可手动删除。
+- 三个窗口的 WebView 数据目录必须一致（都指向同一处），否则 localStorage /
+  BroadcastChannel 的共享状态同步会断——新增窗口时记得带上 `data_directory`。
+
 ## 品牌与字体
 
 - 软件名：**贴纸宝宝 / Sticker Baby**

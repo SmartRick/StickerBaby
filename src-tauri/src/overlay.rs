@@ -67,7 +67,7 @@ pub struct MonitorDesc {
 fn build_layer(app: &AppHandle, label: &'static str) -> tauri::Result<WebviewWindow> {
     let desktop = label == DESKTOP_LABEL;
     let url = format!("overlay.html?layer={}", if desktop { "desktop" } else { "floating" });
-    let win = WebviewWindowBuilder::new(app, label, WebviewUrl::App(url.into()))
+    let mut builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App(url.into()))
         .title(if desktop { "贴纸宝宝 Desktop" } else { "贴纸宝宝 Overlay" })
         .transparent(true)
         .decorations(false)
@@ -81,8 +81,12 @@ fn build_layer(app: &AppHandle, label: &'static str) -> tauri::Result<WebviewWin
         .focusable(!desktop || !cfg!(windows))
         .accept_first_mouse(true)
         .disable_drag_drop_handler()
-        .visible(false)
-        .build()?;
+        .visible(false);
+    // 三个窗口必须共用同一个 WebView 数据目录，localStorage / 事件同步才不断
+    if let Some(dir) = crate::data_dir::webview_dir() {
+        builder = builder.data_directory(dir);
+    }
+    let win = builder.build()?;
     // 只设置各自需要的那一个：在 tao 里 always_on_bottom(false) 会顺带取消置顶
     if desktop {
         win.set_always_on_bottom(true)?;
