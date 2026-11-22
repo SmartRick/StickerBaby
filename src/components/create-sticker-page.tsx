@@ -18,8 +18,9 @@ import { StickerProcessor, type CutoutMask, type ImageInfo } from "@/lib/sticker
 import { useAppStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
+import { VideoStickerForm } from "@/components/video-sticker-form";
 
-const TABS = ["贴纸制作", "AI 生成"] as const;
+const TABS = ["贴纸制作", "视频贴纸", "AI 生成"] as const;
 type Mode = "cutout" | "original";
 const OUTLINE_COLORS = [
   { name: "白色", hex: "#ffffff" },
@@ -519,11 +520,16 @@ export function CreateStickerPage({ onOpenLibrary }: { onOpenLibrary: () => void
     <div className="flex h-full min-h-0 flex-col overflow-hidden px-0.5 pb-4">
       <header className="flex flex-wrap items-center justify-between gap-2 pb-4 pt-2.5">
         <h2 className="font-display text-[22px] font-semibold tracking-tight text-ink">创建贴纸</h2>
-        <Segmented options={TABS} value={tab} onChange={setTab} className="min-w-[174px]" />
+        <Segmented options={TABS} value={tab} onChange={setTab} className="min-w-[260px]" />
       </header>
       <div hidden={tab !== "贴纸制作"} className="min-h-0 flex-1">
         <StickerEditor onOpenLibrary={onOpenLibrary} />
       </div>
+      {tab === "视频贴纸" && (
+        <div className="min-h-0 flex-1">
+          <VideoStickerForm onOpenLibrary={onOpenLibrary} />
+        </div>
+      )}
       <div hidden={tab !== "AI 生成"} className="min-h-0 flex-1 overflow-y-auto">
         <AiStickerForm />
       </div>

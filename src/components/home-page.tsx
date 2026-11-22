@@ -1,13 +1,13 @@
 import { HeroBanner } from "@/components/hero-banner";
 import { PreviewPanel } from "@/components/preview-panel";
-import { StickerBrowser } from "@/components/sticker-browser";
+import { HomeQuickPanel } from "@/components/home-quick-panel";
+import type { PageKey } from "@/lib/pages";
 import { useAppStore } from "@/lib/store";
 import { CHARACTERS } from "@/lib/characters";
 import { toast } from "@/lib/toast";
 
 interface HomePageProps {
-  onOpenLibrary: () => void;
-  onCreateSticker: () => void;
+  onNavigate: (page: PageKey) => void;
 }
 
 function pickRandom(exclude?: string) {
@@ -17,7 +17,7 @@ function pickRandom(exclude?: string) {
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
-export function HomePage({ onOpenLibrary, onCreateSticker }: HomePageProps) {
+export function HomePage({ onNavigate }: HomePageProps) {
   const previewId = useAppStore((state) => state.previewId);
   const selectSticker = useAppStore((state) => state.selectSticker);
   const addPet = useAppStore((state) => state.addPet);
@@ -39,9 +39,9 @@ export function HomePage({ onOpenLibrary, onCreateSticker }: HomePageProps) {
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
       <HeroBanner onAdopt={adopt} />
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1.58fr)_minmax(326px,1fr)] gap-4">
-        <PreviewPanel onShuffle={shuffle} onCreateSticker={onCreateSticker} />
-        <StickerBrowser onOpenLibrary={onOpenLibrary} />
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1.45fr)_minmax(340px,1fr)] gap-4">
+        <PreviewPanel onShuffle={shuffle} onCreateSticker={() => onNavigate("create")} />
+        <HomeQuickPanel onNavigate={onNavigate} />
       </div>
     </div>
   );

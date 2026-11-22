@@ -1,4 +1,4 @@
-import { Check } from "lucide-react";
+import { Check, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Sticker } from "@/lib/stickers";
 import { packShort } from "@/lib/packs";
@@ -43,37 +43,41 @@ export function StickerTile({
           sticker={sticker}
           className="h-[86%] w-[86%] transition-transform duration-300 group-hover/tile:scale-[1.06]"
         />
-        {sticker.kind === "animated" && (
+        {sticker.kind !== "static" && (
           <span className="absolute left-1.5 top-1.5 inline-flex items-center gap-0.5 rounded-full bg-white/85 px-1.5 py-[2px] text-[8px] font-bold uppercase tracking-wide text-[#5b8ac4] backdrop-blur">
             <span className="h-1 w-1 rounded-full bg-[#5bb5ff]" />
-            live
+            {sticker.kind === "video" ? "video" : "live"}
           </span>
         )}
-        {selected && (
+        {selected && !onAdd && (
           <span className="absolute right-1.5 top-1.5 grid h-4 w-4 place-items-center rounded-full bg-[#4a8df8] text-white shadow-sm">
             <Check className="h-2.5 w-2.5" strokeWidth={3.2} />
           </span>
+        )}
+        {onAdd && (
+          <button
+            type="button"
+            aria-label={`把${sticker.name}贴到桌面`}
+            title="贴到桌面"
+            onClick={(event) => {
+              event.stopPropagation();
+              onAdd();
+            }}
+            className={cn(
+              "pressable absolute bottom-1.5 right-1.5 grid h-6 w-6 place-items-center rounded-full bg-[#4a8df8] text-white shadow-[0_6px_12px_-6px_rgba(40,90,170,0.8)] transition-opacity hover:bg-[#3d80ea]",
+              selected ? "opacity-100" : "opacity-0 group-hover/tile:opacity-100 focus-visible:opacity-100"
+            )}
+          >
+            <Plus className="h-3.5 w-3.5" strokeWidth={2.8} />
+          </button>
         )}
       </div>
 
       <div className="flex items-center justify-between gap-1 px-1 pb-0.5 pt-1.5">
         <span className="truncate text-[10.5px] font-semibold text-ink">{sticker.name}</span>
-        {onAdd ? (
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              onAdd();
-            }}
-            className="pressable shrink-0 rounded-full bg-[#eaf3ff] px-2 py-[2px] text-[9px] font-bold text-[#4a7fc5] hover:bg-[#4a8df8] hover:text-white"
-          >
-            + 桌面
-          </button>
-        ) : (
-          <span className="shrink-0 text-[8.5px] font-bold uppercase tracking-wide text-ink-faint">
-            {packShort(sticker.packId)}
-          </span>
-        )}
+        <span className="shrink-0 text-[8.5px] font-bold uppercase tracking-wide text-ink-faint">
+          {packShort(sticker.packId)}
+        </span>
       </div>
     </div>
   );

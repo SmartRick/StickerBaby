@@ -22,6 +22,7 @@ import {
 import { StickerImage } from "@/components/sticker-image";
 import { PackPicker } from "@/components/pack-picker";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { StickerEffectsSection } from "@/components/sticker-effects-section";
 import { useStickerCatalog } from "@/hooks/use-sticker-catalog";
 import { useAppStore } from "@/lib/store";
 import { deleteCreatedSticker } from "@/lib/created-stickers";
@@ -235,7 +236,7 @@ function LibraryCard({ character }: { character: StickerCharacter }) {
           {hasAnimated && (
             <span className="inline-flex items-center gap-1 rounded-full bg-white/92 px-2 py-1 text-[10px] leading-3 font-bold text-[#446da0]">
               <span className="size-1.5 rounded-full bg-[#5199ed]" />
-              动态
+              {character.defaultVariant.kind === "video" ? "视频" : "动态"}
             </span>
           )}
         </div>
@@ -347,6 +348,7 @@ function LibraryCard({ character }: { character: StickerCharacter }) {
                 </div>
               )}
             </div>
+            <StickerEffectsSection character={character} />
             <div className="flex items-center justify-between gap-3">
               <p className="min-w-0 text-[12px] text-ink-soft">{pose.phrase}</p>
               <div className="flex shrink-0 items-center gap-2">
@@ -459,7 +461,7 @@ export function LibraryPage({ openPackPickerInitially }: { openPackPickerInitial
           variant.name,
           variant.phrase,
           STATE_LABEL[variant.state],
-          variant.kind === "animated" ? "动态" : "静态",
+          variant.kind === "video" ? "视频" : variant.kind === "animated" ? "动态" : "静态",
         ]),
       ]
         .join(" ")

@@ -8,14 +8,13 @@ import { ToastHost } from "@/components/toast-host";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useOverlayEffects } from "@/hooks/use-overlay-effects";
 import { invokeSafe, onAppEvent } from "@/lib/tauri";
-import type { PageKey } from "@/lib/pages";
+import { pageFromHash, type PageKey } from "@/lib/pages";
+import { DesktopPage } from "@/components/desktop-page";
+import { PlaygroundPage } from "@/components/playground-page";
 import { cn } from "@/lib/utils";
 
 const CreateStickerPage = lazy(() => import("@/components/create-sticker-page").then(
   ({ CreateStickerPage }) => ({ default: CreateStickerPage })
-));
-const InteractionsPage = lazy(() => import("@/components/interactions-page").then(
-  ({ InteractionsPage }) => ({ default: InteractionsPage })
 ));
 
 function AmbientBackdrop() {
@@ -33,15 +32,9 @@ function AmbientBackdrop() {
 }
 
 export function MainWindow() {
-  const [page, setPage] = useState<PageKey>(() => {
-    const hash = window.location.hash;
-    if (hash === "#library" || hash === "#packs") return "library";
-    if (hash === "#create") return "create";
-    if (hash === "#interactions") return "interactions";
-    return hash === "#settings" ? "settings" : "home";
-  });
+  const [page, setPage] = useState<PageKey>(() => pageFromHash(window.location.hash));
   const [openPackPickerInitially, setOpenPackPickerInitially] = useState(() => window.location.hash === "#packs");
-  useOverlayEffects({ events: true });
+  useOverlayEffects();
 
   const navigate = useCallback((next: PageKey) => {
     setOpenPackPickerInitially(false);
@@ -50,7 +43,7 @@ export function MainWindow() {
   }, []);
 
   useEffect(() => onAppEvent<PageKey>("tray:navigate", (next) => {
-    if (next === "library" || next === "settings") navigate(next);
+    navigate(pageFromHash(next));
   }), [navigate]);
 
   useEffect(() => {
@@ -71,18 +64,15 @@ export function MainWindow() {
             <WindowBar />
             <main className={cn("relative min-h-0 flex-1 px-5", page === "home" ? "pb-3 pt-0" : "pb-0 pt-1")}>
               <div key={page} className="h-full animate-[rise_0.45s_cubic-bezier(0.22,1,0.36,1)_both]">
-                {page === "home" && <HomePage onOpenLibrary={() => navigate("library")} onCreateSticker={() => navigate("create")} />}
+                {page === "home" && <HomePage onNavigate={navigate} />}
                 {page === "library" && <LibraryPage openPackPickerInitially={openPackPickerInitially} />}
                 {page === "create" && (
                   <Suspense fallback={<p role="status" className="p-3 text-sm text-ink-soft">正在打开创建页…</p>}>
                     <CreateStickerPage onOpenLibrary={() => navigate("library")} />
                   </Suspense>
                 )}
-                {page === "interactions" && (
-                  <Suspense fallback={<p role="status" className="p-3 text-sm text-ink-soft">正在打开互动页…</p>}>
-                    <InteractionsPage onOpenLibrary={() => navigate("library")} />
-                  </Suspense>
-                )}
+                {page === "desktop" && <DesktopPage onOpenLibrary={() => navigate("library")} />}
+                {(page === "effects" || page === "pranks" || page === "disturb") && <PlaygroundPage key={page} domain={page} />}
                 {page === "settings" && <SettingsPage />}
               </div>
             </main>

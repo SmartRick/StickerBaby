@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Maximize2, Minus, PawPrint, Square, Trash2, LockKeyhole, X } from "lucide-react";
+import { Maximize2, Minus, PawPrint, Square, Trash2, LockKeyhole, X, Zap } from "lucide-react";
+import { clearAll, runningCount, useOverlayRuntime } from "@/lib/overlay-client";
 import {
   Dialog,
   DialogContent,
@@ -45,6 +46,7 @@ export function WindowBar() {
     };
   }, []);
 
+  const running = runningCount(useOverlayRuntime());
   const status = passthrough
     ? "全局锁定 · 点击直达桌面"
     : overlayVisible
@@ -87,6 +89,17 @@ export function WindowBar() {
       </div>
 
       <div className="flex items-center gap-1.5" data-tauri-drag-region>
+        {running > 0 && (
+          <button
+            type="button"
+            onClick={() => void clearAll()}
+            title="一键清场（Ctrl+Alt+Q）"
+            className="pressable mr-1 inline-flex h-7 items-center gap-1.5 rounded-full border border-[#ffd9de] bg-[#fff5f6] px-3 text-[10.5px] font-bold text-[#d8667a] hover:bg-[#ffeef0]"
+          >
+            <Zap className="h-3 w-3" />
+            {running} 个玩法运行中 · 清场
+          </button>
+        )}
         <button
           type="button"
           aria-label="最小化"
@@ -191,7 +204,7 @@ export function WindowBar() {
               <div className="grid place-items-center rounded-[18px] border border-dashed border-[#d9e5f4] bg-white/50 py-8 text-center">
                 <PawPrint className="h-6 w-6 text-ink-faint" />
                 <p className="mt-2 text-[11px] font-semibold text-ink-soft">桌面上还没有贴纸</p>
-                <p className="mt-0.5 text-[9.5px] text-ink-faint">去贴纸仓库挑一张吧</p>
+                <p className="mt-0.5 text-[9.5px] text-ink-faint">去贴纸库挑一张吧</p>
               </div>
             )}
           </div>

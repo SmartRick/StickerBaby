@@ -1,4 +1,6 @@
-import { ArrowRight, Heart, Sparkles } from "lucide-react";
+import { ArrowDown, ArrowRight, Hand, Heart, Orbit, Sparkles } from "lucide-react";
+import { useAppStore, type StickerMode } from "@/lib/store";
+import { cn } from "@/lib/utils";
 import { StickerImage } from "@/components/sticker-image";
 import { STICKERS } from "@/lib/stickers";
 import { BANNERS } from "@/lib/banners";
@@ -9,7 +11,16 @@ interface HeroBannerProps {
 
 const shiba = STICKERS.find((sticker) => sticker.id === "shiba")!;
 
+const MODES: Array<{ id: StickerMode; label: string; icon: typeof Hand }> = [
+  { id: "float", label: "悬浮", icon: Sparkles },
+  { id: "desk", label: "桌面", icon: Hand },
+  { id: "space", label: "太空", icon: Orbit },
+  { id: "gravity", label: "重力", icon: ArrowDown },
+];
+
 export function HeroBanner({ onAdopt }: HeroBannerProps) {
+  const mode = useAppStore((state) => state.settings.stickerMode);
+  const setSettings = useAppStore((state) => state.setSettings);
   return (
     <section className="relative h-[172px] shrink-0 overflow-hidden rounded-[28px] border border-white/70 bg-[#dff2ff] shadow-soft">
       <img
@@ -33,15 +44,34 @@ export function HeroBanner({ onAdopt }: HeroBannerProps) {
           <br />
           <span className="text-[#3c7edb]">点亮你的桌面～</span>
         </h2>
-        <button
-          type="button"
-          onClick={onAdopt}
-          className="pressable group inline-flex w-fit items-center gap-2 rounded-full border border-white/90 bg-gradient-to-r from-[#fff2cf] via-[#ffe9b5] to-[#ffe1a4] px-4 py-2 text-[12px] font-bold text-[#8a6420] shadow-[0_10px_20px_-14px_rgba(150,108,32,0.7)] hover:from-[#ffefc2] hover:to-[#ffd991]"
-        >
-          <Sparkles className="h-3.5 w-3.5 text-[#e8a52f]" strokeWidth={2.4} />
-          随机贴一张
-          <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" strokeWidth={2.4} />
-        </button>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            type="button"
+            onClick={onAdopt}
+            className="pressable group inline-flex w-fit items-center gap-2 rounded-full border border-white/90 bg-gradient-to-r from-[#fff2cf] via-[#ffe9b5] to-[#ffe1a4] px-4 py-2 text-[12px] font-bold text-[#8a6420] shadow-[0_10px_20px_-14px_rgba(150,108,32,0.7)] hover:from-[#ffefc2] hover:to-[#ffd991]"
+          >
+            <Sparkles className="h-3.5 w-3.5 text-[#e8a52f]" strokeWidth={2.4} />
+            随机贴一张
+            <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" strokeWidth={2.4} />
+          </button>
+          <div className="flex items-center gap-0.5 rounded-full border border-white/80 bg-white/55 p-1 backdrop-blur" title="贴纸运动模式">
+            {MODES.map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                type="button"
+                aria-pressed={mode === id}
+                onClick={() => setSettings({ stickerMode: id })}
+                className={cn(
+                  "pressable inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-[10.5px] font-semibold transition-colors",
+                  mode === id ? "bg-white text-[#2e67ba] shadow-sm" : "text-[#5b7ba4] hover:bg-white/70"
+                )}
+              >
+                <Icon className="h-3 w-3" strokeWidth={2.4} />
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       <div className="pointer-events-none absolute -right-2 bottom-[-16px] h-[196px] w-[196px]">

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import {
   ArrowDown,
   Blend,
@@ -18,6 +18,8 @@ import {
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
+import { SectionCard, SettingRow, ShortcutKey } from "@/components/setting-parts";
+import { listMonitors, type MonitorDesc } from "@/lib/overlay-client";
 import {
   Dialog,
   DialogContent,
@@ -28,140 +30,11 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { StickerImage } from "@/components/sticker-image";
-import { findSticker, useAppStore, type StickerMode } from "@/lib/store";
+import { findSticker, useAppStore } from "@/lib/store";
 import { STICKERS } from "@/lib/stickers";
 import { toast } from "@/lib/toast";
 import { invokeSafe, quitApp } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
-
-function SectionCard({
-  icon,
-  title,
-  description,
-  children,
-  className,
-}: {
-  icon: ReactNode;
-  title: string;
-  description?: string;
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <section className={cn("glass rounded-[24px] p-4 shadow-soft", className)}>
-      <div className="flex items-center gap-2.5 px-1">
-        <span className="grid h-8 w-8 place-items-center rounded-xl bg-white/75 text-[#4a8df8] shadow-sm">
-          {icon}
-        </span>
-        <div>
-          <h3 className="text-[12.5px] font-bold text-ink">{title}</h3>
-          {description && <p className="mt-0.5 text-[9.5px] text-ink-faint">{description}</p>}
-        </div>
-      </div>
-      <div className="mt-2">{children}</div>
-    </section>
-  );
-}
-
-function SettingRow({
-  title,
-  description,
-  icon,
-  control,
-  disabled,
-}: {
-  title: string;
-  description: string;
-  icon?: ReactNode;
-  control: ReactNode;
-  disabled?: boolean;
-}) {
-  return (
-    <div className={cn("flex items-center justify-between gap-4 py-3", disabled && "opacity-50")}>
-      <div className="flex min-w-0 items-start gap-2.5">
-        {icon && <span className="mt-0.5 text-ink-faint">{icon}</span>}
-        <div className="min-w-0">
-          <p className="text-[11.5px] font-semibold text-ink">{title}</p>
-          <p className="mt-0.5 text-[9.5px] leading-4 text-ink-soft">{description}</p>
-        </div>
-      </div>
-      <div className="shrink-0">{control}</div>
-    </div>
-  );
-}
-
-function PhysicsSlider({
-  label,
-  description,
-  value,
-  min,
-  max,
-  onChange,
-}: {
-  label: string;
-  description: string;
-  value: number;
-  min: number;
-  max: number;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <SettingRow
-      title={label}
-      description={description}
-      control={
-        <div className="flex items-center gap-2">
-          <Slider
-            aria-label={label}
-            className="w-[clamp(64px,11vw,132px)]"
-            value={[value]}
-            min={min}
-            max={max}
-            step={0.05}
-            onValueChange={([next]) => onChange(next)}
-          />
-          <span className="w-9 text-right text-[10px] font-semibold tabular-nums text-ink-soft">
-            {Math.round(value * 100)}%
-          </span>
-        </div>
-      }
-    />
-  );
-}
-
-function ShortcutKey({ children }: { children: ReactNode }) {
-  return (
-    <kbd className="inline-flex h-6 min-w-6 items-center justify-center rounded-md border border-[#dfe8f4] bg-white/85 px-1.5 text-[9.5px] font-bold text-[#5d7697] shadow-[0_2px_0_rgba(190,205,225,0.6)]">
-      {children}
-    </kbd>
-  );
-}
-
-const STICKER_MODES: Array<{
-  id: StickerMode;
-  label: string;
-  description: string;
-  icon: typeof Sparkles;
-}> = [
-  {
-    id: "float",
-    label: "悬浮",
-    description: "停在原位，可自由摆放",
-    icon: Sparkles,
-  },
-  {
-    id: "gravity",
-    label: "重力",
-    description: "有重量，会下落、碰撞、翻滚",
-    icon: ArrowDown,
-  },
-  {
-    id: "space",
-    label: "太空",
-    description: "无重力，拖一下顺着惯性漂",
-    icon: Orbit,
-  },
-];
 
 export function SettingsPage() {
   const settings = useAppStore((state) => state.settings);
@@ -210,178 +83,7 @@ export function SettingsPage() {
           </div>
         )}
 
-        <SectionCard
-          icon={<Sparkles className="h-4 w-4" />}
-          title="贴纸模式"
-          description="决定贴纸在桌面上的运动方式"
-        >
-          <div className="grid grid-cols-3 gap-2 px-1 pb-1">
-            {STICKER_MODES.map((mode) => {
-              const Icon = mode.icon;
-              const active = settings.stickerMode === mode.id;
-              return (
-                <button
-                  key={mode.id}
-                  type="button"
-                  onClick={() => setSettings({ stickerMode: mode.id })}
-                  className={cn(
-                    "pressable rounded-2xl border p-3 text-left transition-colors",
-                    active
-                      ? "border-[#9cc6ff] bg-white shadow-[0_10px_22px_-18px_rgba(41,96,179,0.8)]"
-                      : "border-white/70 bg-white/45 hover:bg-white/75"
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "grid h-8 w-8 place-items-center rounded-xl",
-                      active
-                        ? "bg-gradient-to-br from-[#e8f2ff] to-[#d7e9ff] text-[#4a8df8]"
-                        : "bg-white/70 text-ink-faint"
-                    )}
-                  >
-                    <Icon className="h-4 w-4" strokeWidth={2.1} />
-                  </span>
-                  <span className="mt-2 block text-[11.5px] font-bold text-ink">
-                    {mode.label}
-                  </span>
-                  <span className="mt-0.5 block text-[9px] leading-4 text-ink-soft">
-                    {mode.description}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          {settings.stickerMode === "float" && (
-            <SettingRow
-              title="轻微晃动"
-              description="悬浮模式下让贴纸轻轻呼吸、摇摆"
-              icon={<Sparkles className="h-3.5 w-3.5" />}
-              control={
-                <Switch
-                  checked={settings.idleMotion !== false}
-                  onCheckedChange={(checked) => setSettings({ idleMotion: checked })}
-                />
-              }
-            />
-          )}
-
-          {settings.stickerMode !== "float" && (
-            <div className="mt-2">
-              {settings.stickerMode === "gravity" ? (
-                <PhysicsSlider
-                  label="重力强度"
-                  description="越高，下落越快"
-                  value={settings.gravityStrength}
-                  min={0.1}
-                  max={2}
-                  onChange={(gravityStrength) => setSettings({ gravityStrength })}
-                />
-              ) : (
-                <PhysicsSlider
-                  label="惯性强度"
-                  description="越高，松手后漂得越远"
-                  value={settings.inertiaStrength}
-                  min={0.2}
-                  max={2}
-                  onChange={(inertiaStrength) => setSettings({ inertiaStrength })}
-                />
-              )}
-              <PhysicsSlider
-                label="贴纸重量"
-                description="越重，拖动时跟手越慢"
-                value={settings.physicsWeight}
-                min={0.3}
-                max={2.5}
-                onChange={(physicsWeight) => setSettings({ physicsWeight })}
-              />
-              <PhysicsSlider
-                label="碰撞弹性"
-                description="控制撞到贴纸或屏幕边缘时的反弹"
-                value={settings.physicsBounce}
-                min={0}
-                max={1.5}
-                onChange={(physicsBounce) => setSettings({ physicsBounce })}
-              />
-              <SettingRow
-                title="贴纸之间碰撞"
-                description="关闭后贴纸可以互相穿过，仍会被屏幕边缘挡住"
-                control={
-                  <Switch
-                    aria-label="贴纸之间碰撞"
-                    checked={settings.petCollisions}
-                    onCheckedChange={(petCollisions) => setSettings({ petCollisions })}
-                  />
-                }
-              />
-              <SettingRow
-                title="允许翻滚"
-                description="关闭后贴纸始终保持朝上"
-                icon={<RotateCcw className="h-3.5 w-3.5" />}
-                control={
-                  <Switch
-                    checked={settings.tumble}
-                    onCheckedChange={(checked) => setSettings({ tumble: checked })}
-                  />
-                }
-              />
-              <div className="flex items-center justify-between gap-3 px-1 py-1">
-                <div>
-                  <p className="text-[11.5px] font-semibold text-ink">物理帧率</p>
-                  <p className="mt-0.5 text-[9.5px] text-ink-soft">
-                    运动时的更新频率上限，实际表现随屏幕和负载变化
-                  </p>
-                </div>
-                <div className="flex items-center gap-1 rounded-full border border-white/70 bg-white/45 p-1">
-                  {([30, 60, 120] as const).map((fps) => (
-                    <button
-                      key={fps}
-                      type="button"
-                      onClick={() => setSettings({ physicsFps: fps })}
-                      className={cn(
-                        "pressable rounded-full px-2.5 py-1 text-[10px] font-bold transition-colors",
-                        settings.physicsFps === fps
-                          ? "bg-[#4a8df8] text-white shadow-sm"
-                          : "text-ink-soft hover:bg-white/80"
-                      )}
-                    >
-                      {fps}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-        </SectionCard>
-
-        <SectionCard
-          icon={<Monitor className="h-4 w-4" />}
-          title="桌面行为"
-          description="控制贴纸层和窗口的关系"
-        >
-          <SettingRow
-            title="全局锁定"
-            description="锁定所有贴纸的拖动和缩放，鼠标点击会穿透。关闭后恢复每张贴纸自己的锁定状态。"
-            icon={<MousePointer2 className="h-3.5 w-3.5" />}
-            control={
-              <Switch
-                checked={settings.passthrough}
-                onCheckedChange={() => toggleSetting("passthrough")}
-              />
-            }
-          />
-          <SettingRow
-            title="显示桌面贴纸"
-            description={settings.overlayVisible ? "贴纸正在桌面上" : "贴纸层已隐藏，随时可以叫回来"}
-            icon={settings.overlayVisible ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-            control={
-              <Switch
-                checked={settings.overlayVisible}
-                onCheckedChange={() => toggleSetting("overlayVisible")}
-              />
-            }
-          />
-        </SectionCard>
+        <MonitorSection />
 
         <SectionCard
           icon={<Blend className="h-4 w-4" />}
@@ -445,13 +147,13 @@ export function SettingsPage() {
         <SectionCard
           icon={<SlidersHorizontal className="h-4 w-4" />}
           title="外观"
-          description="让宠物更合你的桌面"
+          description="让贴纸更合你的桌面"
         >
           <div className="pb-3 pt-3">
             <div className="flex items-center justify-between pb-2">
               <div>
-                <p className="text-[11.5px] font-semibold text-ink">宠物大小</p>
-                <p className="mt-0.5 text-[9.5px] text-ink-soft">统一调整桌面上所有宠物的尺寸</p>
+                <p className="text-[11.5px] font-semibold text-ink">贴纸大小</p>
+                <p className="mt-0.5 text-[9.5px] text-ink-soft">统一调整桌面上所有贴纸的尺寸</p>
               </div>
               <span className="rounded-full bg-white/70 px-2 py-1 text-[9.5px] font-bold text-[#5d7697]">
                 {Math.round(settings.petScale * 100)}%
@@ -492,6 +194,24 @@ export function SettingsPage() {
               <ShortcutKey>P</ShortcutKey>
             </div>
           </div>
+          {[
+            { title: "一键清场", description: "立即停止所有特效、恶作剧和扰动，还原被移动的窗口", key: "Q" },
+            { title: "隐藏 / 显示悬浮层", description: "临时藏起桌面上的一切，再按一次回来", key: "F12" },
+          ].map((item) => (
+            <div key={item.key} className="flex items-center justify-between gap-3 py-3">
+              <div>
+                <p className="text-[11.5px] font-semibold text-ink">{item.title}</p>
+                <p className="mt-0.5 text-[9.5px] text-ink-soft">{item.description}</p>
+              </div>
+              <div className="flex items-center gap-1">
+                <ShortcutKey>Ctrl</ShortcutKey>
+                <span className="text-[9px] text-ink-faint">+</span>
+                <ShortcutKey>Alt</ShortcutKey>
+                <span className="text-[9px] text-ink-faint">+</span>
+                <ShortcutKey>{item.key}</ShortcutKey>
+              </div>
+            </div>
+          ))}
           <div className="flex items-center justify-between gap-3 py-3">
             <div>
               <p className="text-[11.5px] font-semibold text-ink">托盘菜单</p>
@@ -659,13 +379,59 @@ export function SettingsPage() {
           </div>
           <ul className="mt-2 space-y-2 text-[9.5px] leading-[1.7] text-ink-soft">
             <li>· 左键拖动贴纸可以换位置，右键拖拽可以调整大小。</li>
-            <li>· 中键点击播放互动。主窗口左侧的「互动」可以预览和更换动作。</li>
-            <li>· 右键贴纸可以锁定（点击穿透）、左右翻转、换一只或移除。</li>
+            <li>· 单击 Q 弹、双击转圈、鼠标来回蹭是抚摸；用力一甩会滑出去。</li>
+            <li>· 滚轮缩放，Shift + 滚轮旋转；中键播放手势互动。</li>
+            <li>· 右键贴纸可以置顶 / 放到桌面层、锁定（点击穿透）、翻转、复制或移除。</li>
+            <li>· 锁定的贴纸停留 1 秒会出现「解锁」按钮。</li>
             <li>· 锁定模式下主窗口和托盘仍然可以操作。</li>
             <li>· 关闭主窗口不会退出，贴纸会继续留在桌面上。</li>
           </ul>
         </section>
       </aside>
     </div>
+  );
+}
+
+function MonitorSection() {
+  const monitorIndex = useAppStore((state) => state.settings.monitorIndex);
+  const setSettings = useAppStore((state) => state.setSettings);
+  const [monitors, setMonitors] = useState<MonitorDesc[]>([]);
+
+  useEffect(() => {
+    void listMonitors().then((list) => setMonitors(list ?? []));
+  }, []);
+
+  const current = monitorIndex >= 0 ? monitorIndex : monitors.find((m) => m.primary)?.index ?? 0;
+
+  return (
+    <SectionCard icon={<Monitor className="h-4 w-4" />} title="显示器" description="贴纸和特效出现在哪块屏幕上">
+      {monitors.length <= 1 ? (
+        <p className="px-1 py-3 text-[10px] text-ink-soft">当前只有一块显示器。</p>
+      ) : (
+        <div className="grid grid-cols-2 gap-2 px-1 py-2">
+          {monitors.map((monitor) => (
+            <button
+              key={monitor.index}
+              type="button"
+              onClick={() => setSettings({ monitorIndex: monitor.index })}
+              className={cn(
+                "pressable rounded-2xl border p-3 text-left transition-colors",
+                current === monitor.index
+                  ? "border-[#9cc6ff] bg-white shadow-[0_10px_22px_-18px_rgba(41,96,179,0.8)]"
+                  : "border-white/70 bg-white/45 hover:bg-white/75"
+              )}
+            >
+              <span className="block text-[11.5px] font-bold text-ink">
+                显示器 {monitor.index + 1}
+                {monitor.primary && <span className="ml-1.5 text-[9px] font-semibold text-[#4a8df8]">主屏</span>}
+              </span>
+              <span className="mt-0.5 block text-[9px] text-ink-soft">
+                {monitor.rect.width}×{monitor.rect.height} · 缩放 {Math.round(monitor.scale * 100)}%
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </SectionCard>
   );
 }

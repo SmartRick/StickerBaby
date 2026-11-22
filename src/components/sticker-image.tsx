@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import { stickerSrc, type Sticker } from "@/lib/stickers";
 
 import { nativeStickerUrl, readCreatedImage } from "@/lib/created-stickers";
+import { VideoThumb } from "@/components/video-thumb";
 
 const RiveSticker = lazy(() => import("@/components/rive-sticker"));
 
@@ -41,6 +42,11 @@ export function StickerImage({
       if (url) URL.revokeObjectURL(url);
     };
   }, [browserId]);
+
+  // 自制视频贴纸没有封面图，直接播放（内置视频贴纸有抠好的封面 webp）
+  if (sticker.kind === "video" && localPath && sticker.video) {
+    return <VideoThumb src={sticker.video.src} chroma={sticker.video.chroma} name={sticker.name} className={className} />;
+  }
 
   const src = localPath
     ? nativeStickerUrl(localPath)
