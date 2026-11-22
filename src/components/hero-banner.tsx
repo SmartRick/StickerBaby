@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowDown, ArrowRight, Hand, Heart, ImagePlus, Orbit, Sparkles } from "lucide-react";
+import { ArrowDown, ArrowRight, Hand, ImagePlus, Orbit, Sparkles } from "lucide-react";
 import { useAppStore, type StickerMode } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { StickerImage } from "@/components/sticker-image";
@@ -46,32 +46,6 @@ export function HeroBanner({ onAdopt, onCreate }: HeroBannerProps) {
       />
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.78)_0%,rgba(255,255,255,0.46)_38%,rgba(255,255,255,0.04)_68%,transparent_100%)]" />
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/10 via-transparent to-[#2f5f7a]/10" />
-
-      {/* 倾斜的今日主角名牌，压在贴纸左缘后方，更有张力 */}
-      <div className="pointer-events-none absolute bottom-[38px] right-[142px] z-0 -rotate-[8deg] text-right">
-        <p className="text-[9.5px] font-bold tracking-[0.32em] text-white/95 drop-shadow-[0_1px_4px_rgba(43,76,125,0.6)]">
-          今日主角
-        </p>
-        <p className="font-display text-[26px] font-black leading-tight text-white drop-shadow-[0_3px_10px_rgba(43,76,125,0.7)]">
-          {DAILY.name}
-        </p>
-      </div>
-
-      <div className="pointer-events-none absolute -right-2 bottom-[-16px] z-10 h-[196px] w-[196px]">
-        <div
-          className="absolute inset-0 rounded-full opacity-80 blur-2xl"
-          style={{ background: "radial-gradient(circle, rgba(255,255,255,0.9), transparent 68%)" }}
-        />
-        <StickerImage
-          sticker={DAILY}
-          className="absolute inset-0 h-full w-full -rotate-[4deg] animate-[bob_5s_ease-in-out_infinite] drop-shadow-[0_22px_26px_rgba(67,89,120,0.26)]"
-        />
-      </div>
-
-      <Heart className="absolute right-[190px] top-6 h-7 w-7 -rotate-12 fill-[#ff8fa3] text-[#ff8fa3] drop-shadow-sm" strokeWidth={1.5} />
-      <Heart className="absolute right-[174px] top-[62px] h-4 w-4 rotate-12 fill-[#ff9fb0] text-[#ff9fb0]" strokeWidth={1.5} />
-      <Sparkles className="absolute right-[228px] top-[112px] h-6 w-6 text-[#ffd45e]" strokeWidth={2} />
-      <Sparkles className="absolute right-[206px] bottom-[26px] h-3.5 w-3.5 text-[#ffe28a]" strokeWidth={2.4} />
 
       <div className="relative z-10 flex h-full flex-col justify-center gap-3 px-7 pb-1">
         <div className="inline-flex w-fit items-center gap-1.5 rounded-full border border-white/80 bg-white/55 px-2.5 py-1 text-[10px] font-semibold tracking-wide text-[#5b7ba4] backdrop-blur">
@@ -120,6 +94,32 @@ export function HeroBanner({ onAdopt, onCreate }: HeroBannerProps) {
               </button>
             ))}
           </div>
+        </div>
+      </div>
+
+      {/* 右侧：左大右小 —— 倾斜的大字名牌 + 小一号的今日主角，互不遮挡 */}
+      <div className="pointer-events-none absolute inset-y-0 right-0 z-10 flex select-none items-center gap-1 pr-3">
+        <div className="-rotate-[7deg] text-right">
+          <p className="text-[10px] font-bold tracking-[0.34em] text-white drop-shadow-[0_1px_6px_rgba(43,76,125,0.7)]">
+            今日主角
+          </p>
+          <p className="font-display text-[34px] font-black leading-[1.1] tracking-tight text-white drop-shadow-[0_2px_6px_rgba(43,76,125,0.65),0_10px_26px_rgba(43,76,125,0.45)]">
+            {DAILY.name}
+          </p>
+        </div>
+        <div className="relative h-[132px] w-[132px] shrink-0">
+          {/* 主角自带颜色的光晕 + 慢慢闪烁的小光点 */}
+          <div
+            className="absolute inset-[-14%] animate-[breathe_5s_ease-in-out_infinite] rounded-full blur-2xl"
+            style={{ background: `radial-gradient(circle, ${DAILY.glow}, transparent 70%)` }}
+          />
+          <span className="absolute left-[2%] top-[16%] size-1.5 animate-[banner-dot_3.4s_ease-in-out_infinite] rounded-full bg-white/95" />
+          <span className="absolute right-[8%] top-[6%] size-1 animate-[banner-dot_4.2s_ease-in-out_0.9s_infinite] rounded-full bg-[#ffe28a]" />
+          <span className="absolute bottom-[14%] left-[12%] size-1 animate-[banner-dot_3.8s_ease-in-out_1.6s_infinite] rounded-full bg-white/85" />
+          <StickerImage
+            sticker={DAILY}
+            className="absolute inset-0 h-full w-full -rotate-[5deg] animate-[bob_5s_ease-in-out_infinite] drop-shadow-[0_18px_24px_rgba(67,89,120,0.3)]"
+          />
         </div>
       </div>
     </section>

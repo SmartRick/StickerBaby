@@ -320,6 +320,19 @@ button,
   }
 }
 
+/* 首页 banner 主角身边的漂浮小光点 */
+@keyframes banner-dot {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: translate3d(0, 0, 0) scale(0.75);
+  }
+  50% {
+    opacity: 1;
+    transform: translate3d(3px, -10px, 0) scale(1.2);
+  }
+}
+
 @keyframes sway {
   0%,
   100% {
