@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowDown, ArrowRight, Hand, ImagePlus, Orbit, Sparkles } from "lucide-react";
+import { ArrowDown, ArrowRight, ImagePlus, Orbit, Sparkles, Wind } from "lucide-react";
 import { useAppStore, type StickerMode } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { StickerImage } from "@/components/sticker-image";
@@ -12,9 +12,9 @@ interface HeroBannerProps {
   onCreate: () => void;
 }
 
-const MODES: Array<{ id: StickerMode; label: string; icon: typeof Hand }> = [
+const MODES: Array<{ id: StickerMode; label: string; icon: typeof Wind }> = [
   { id: "float", label: "悬浮", icon: Sparkles },
-  { id: "desk", label: "桌面", icon: Hand },
+  { id: "desk", label: "滑冰", icon: Wind },
   { id: "space", label: "太空", icon: Orbit },
   { id: "gravity", label: "重力", icon: ArrowDown },
 ];

@@ -16,6 +16,7 @@ import { GENERIC_PHRASES, STATE_LABEL } from "@/lib/stickers";
 import { findSticker, useAppStore, type AppStore, type PetInstance, type Settings } from "@/lib/store";
 import type { ParticleSystem } from "../core/particles";
 import type { Interactive, PointerInfo, Runtime } from "../core/runtime";
+import { boundRadius, satMTV, worldVertices } from "./collide";
 import { ContextMenu, icon, type MenuEntry } from "./menu";
 import { type BodySpec, type PhysicsTuning, StickerWorld } from "./physics";
 import type { PoseVariant } from "./poses";
@@ -78,15 +79,15 @@ export class StickerLayer implements Interactive, StickerHost {
       idleMotion: st.idleMotion && (st.stickerMode === "float" || st.stickerMode === "desk"),
       mode: st.stickerMode,
       simulated: this.physicsWanted(st),
+      collide: st.stickerMode === "desk" && st.collisions.desk,
       springDrag: st.stickerMode === "space" || st.stickerMode === "gravity",
       interactive: st.overlayVisible && !st.passthrough,
     };
   }
 
-  /** 悬浮不模拟；桌面模式只有打开碰撞才交给刚体；太空 / 重力总是刚体 */
+  /** 悬浮不模拟；桌面模式始终用贴纸自带的滑行物理（互撞在 collide 里做）；太空 / 重力交给刚体 */
   private physicsWanted(st: Settings) {
-    if (st.stickerMode === "float") return false;
-    return st.stickerMode !== "desk" || st.collisions.desk;
+    return st.stickerMode === "space" || st.stickerMode === "gravity";
   }
 
   private tuning(st: Settings): PhysicsTuning {
@@ -264,6 +265,50 @@ export class StickerLayer implements Interactive, StickerHost {
     this.world.release(s.id, vx, vy, moved);
     this.moved.add(s.id);
     this.runWorld();
+  }
+
+  /**
+   * 桌面互撞（滑行 / 拖拽中的贴纸与其他贴纸做凸包碰撞）。
+   * 分离与冲量都不改变原有滑行物理的参数：摩擦、撞墙回弹仍由 slide 自己处理。
+   */
+  collide(mover: Sticker) {
+    if (!this.env.collide || mover.locked) return;
+    const a = mover.shape();
+    const ra = boundRadius(a);
+    for (const other of this.items.values()) {
+      if (other === mover) continue;
+      const b = other.shape();
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const rr = ra + boundRadius(b);
+      if (dx * dx + dy * dy > rr * rr) continue;
+      const mtv = satMTV(worldVertices(a), worldVertices(b));
+      if (!mtv) continue;
+      const { nx, ny, depth } = mtv;
+      // 分离：拖拽 / 锁定的一侧不动，另一侧退出去；都在动就各退一半（每帧最多推 32px）
+      const aFixed = mover.dragging;
+      const bFixed = other.dragging || other.locked;
+      const push = Math.min(depth, 32);
+      const shareA = aFixed ? 0 : bFixed ? push : push / 2;
+      const shareB = push - shareA;
+      if (shareA > 0) mover.nudge(-nx * shareA, -ny * shareA);
+      if (shareB > 0) other.nudge(nx * shareB, ny * shareB);
+      // 冲量：沿法线交换速度（恢复系数 0.55 与撞墙一致，质量按面积），微小接触不交换
+      const va = mover.velocity();
+      const vb = other.velocity();
+      const rel = (vb.x - va.x) * nx + (vb.y - va.y) * ny;
+      if (rel >= -20) continue;
+      const ma = aFixed ? Infinity : a.width * a.height;
+      const mb = bFixed ? Infinity : b.width * b.height;
+      const j = (-(1 + 0.55) * rel) / (1 / ma + 1 / mb);
+      if (!Number.isFinite(j)) continue;
+      mover.shove(va.x - (j / ma) * nx, va.y - (j / ma) * ny);
+      other.shove(vb.x + (j / mb) * nx, vb.y + (j / mb) * ny);
+      // 挤压反馈（不做速度反弹——上面冲量已经处理；火花仍只在撞墙时迸）
+      const axis = Math.abs(nx) >= Math.abs(ny) ? "x" : "y";
+      if (!aFixed) mover.impact(axis, Math.abs(rel), undefined, false);
+      if (!bFixed) other.impact(axis, Math.abs(rel), undefined, false);
+    }
   }
 
   // ---------------- 自动变淡 ----------------

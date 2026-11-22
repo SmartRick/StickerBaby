@@ -6,7 +6,8 @@
  * - 双击：大跳转圈；中键：手势互动（摸摸 / 戳戳 / 托一托……）
  * - 抚摸：鼠标在贴纸上来回蹭 → 左右扭动 + 粒子（穿透状态下同样能识别）
  * - 拖拽：被拎起放大、按速度倾斜和拉伸；甩出后带惯性滑行、撞边回弹
- *   （太空 / 重力 / 开启碰撞时交给物理世界）
+ *   （太空 / 重力交给物理世界；桌面模式始终保持自己的滑行手感，
+ *   开启“贴纸之间碰撞”时在滑行 / 拖拽中做凸包互撞，见 collide.ts）
  * - 右键拖动缩放，单击右键弹菜单；滚轮缩放，Shift+滚轮旋转
  *
  * DOM 结构：.sticker（位置 / 弹簧变形）> .sb-motion（手势变形）> .sb-idle（待机动画）
@@ -69,8 +70,10 @@ export interface StickerEnv {
   reduceMotion: boolean;
   idleMotion: boolean;
   mode: StickerMode;
-  /** 是否由物理世界接管运动 */
+  /** 是否由物理世界接管运动（只有太空 / 重力） */
   simulated: boolean;
+  /** 桌面模式开启了“贴纸之间碰撞”：滑行 / 拖拽时做凸包互撞 */
+  collide: boolean;
   /** 太空 / 重力：弹簧拉着刚体走，贴纸位置完全来自刚体 */
   springDrag: boolean;
   /** 全局锁定 / 隐藏时贴纸不可交互 */
@@ -95,6 +98,8 @@ export interface StickerHost {
   teleported(s: Sticker): void;
   /** 几何（尺寸 / 轮廓 / 翻转）变化，需要重建刚体 */
   geometryChanged(s: Sticker): void;
+  /** 桌面互撞：与别的贴纸做凸包碰撞（只在使用自带滑行物理时调用） */
+  collide(s: Sticker): void;
   phraseFor(s: Sticker, pose: PoseVariant | undefined): string;
 }
 
@@ -195,6 +200,39 @@ export class Sticker {
   /** 碰撞轮廓 */
   get hull(): Pt[] {
     return this.chroma || !this.mask ? FULL_HULL : this.mask.hull;
+  }
+
+  /** 碰撞体描述（供桌面互撞的 SAT 检测） */
+  shape() {
+    return {
+      x: this.x,
+      y: this.y,
+      rot: this.rotation,
+      width: this.width,
+      height: this.height,
+      hull: this.hull,
+      flipped: this.spec.flipped,
+    };
+  }
+
+  /** 当前滑行速度（px/s） */
+  velocity() {
+    return { x: this.vel.x, y: this.vel.y };
+  }
+
+  /** 碰撞分离：直接平移（不改变速度） */
+  nudge(dx: number, dy: number) {
+    this.x += dx;
+    this.y += dy;
+  }
+
+  /** 被别的贴纸撞上：获得速度并进入滑行（拖拽中 / 锁定的贴纸不动） */
+  shove(vx: number, vy: number) {
+    if (this.dragging || this.locked) return;
+    this.vel.x = clamp(vx, -4000, 4000);
+    this.vel.y = clamp(vy, -4000, 4000);
+    if (Math.hypot(this.vel.x, this.vel.y) > 40) this.sliding = true;
+    this.animate();
   }
 
   // ---------------- 状态同步 ----------------
@@ -754,6 +792,8 @@ export class Sticker {
     const springs = [this.sx, this.sy, this.rot, this.jump, this.spin, this.offX, this.offY];
     for (const s of springs) s.step(dt);
     if (this.sliding) this.slide(dt);
+    // 桌面互撞：滑行 / 拖拽中的贴纸与别的贴纸分离并交换动量
+    if (this.host.env.collide && (this.sliding || this.dragging)) this.host.collide(this);
     this.render();
     const settled = !this.sliding && !this.down && springs.every((s) => s.settled);
     if (settled) {
@@ -820,8 +860,8 @@ export class Sticker {
   }
 
   /** 撞墙 / 撞贴纸：沿撞击方向挤压，速度大时迸出火花 */
-  impact(axis: "x" | "y", speed: number, edge?: number) {
-    if (this.sliding) this.vel[axis] *= -0.55;
+  impact(axis: "x" | "y", speed: number, edge?: number, bounce = true) {
+    if (bounce && this.sliding) this.vel[axis] *= -0.55;
     const k = Math.min(speed / 900, 6);
     if (axis === "x") {
       this.sx.v -= k;

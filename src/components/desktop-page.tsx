@@ -6,7 +6,6 @@ import {
   Eye,
   EyeOff,
   FlipHorizontal,
-  Hand,
   LockKeyhole,
   MousePointer2,
   Orbit,
@@ -14,6 +13,7 @@ import {
   Sparkles,
   Trash2,
   UnlockKeyhole,
+  Wind,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
@@ -29,9 +29,9 @@ import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import type { ChromaKey } from "@/shared/protocol";
 
-const MODES: Array<{ id: StickerMode; label: string; description: string; icon: typeof Hand }> = [
+const MODES: Array<{ id: StickerMode; label: string; description: string; icon: typeof Wind }> = [
   { id: "float", label: "悬浮", description: "拖到哪停在哪，轻轻呼吸摇摆", icon: Sparkles },
-  { id: "desk", label: "桌面", description: "甩一下滑出去，撞边挤压回弹", icon: Hand },
+  { id: "desk", label: "滑冰", description: "甩一下滑出去，撞边挤压回弹", icon: Wind },
   { id: "space", label: "太空", description: "无重力，拖一下顺着惯性漂", icon: Orbit },
   { id: "gravity", label: "重力", description: "会下落、碰撞、堆叠、翻滚", icon: ArrowDown },
 ];
@@ -96,7 +96,8 @@ function MotionSection() {
   const setSettings = useAppStore((state) => state.setSettings);
   const mode = settings.stickerMode;
   const collide = mode !== "float" && settings.collisions[mode];
-  const rigid = mode === "space" || mode === "gravity" || collide;
+  // 物理参数只属于太空 / 重力；滑冰（桌面）模式打开互撞也保持原有滑行手感，不加额外参数
+  const rigid = mode === "space" || mode === "gravity";
 
   return (
     <SectionCard icon={<Sparkles className="h-4 w-4" />} title="运动模式" description="拖拽、甩出、松手之后贴纸怎么运动">
@@ -114,11 +115,13 @@ function MotionSection() {
                 active ? "border-[#9cc6ff] bg-white shadow-[0_10px_22px_-18px_rgba(41,96,179,0.8)]" : "border-white/70 bg-white/45 hover:bg-white/75"
               )}
             >
-              <span className={cn("grid h-8 w-8 place-items-center rounded-xl", active ? "bg-gradient-to-br from-[#e8f2ff] to-[#d7e9ff] text-[#4a8df8]" : "bg-white/70 text-ink-faint")}>
-                <Icon className="h-4 w-4" strokeWidth={2.1} />
+              <span className="flex items-center gap-2">
+                <span className={cn("grid h-7 w-7 shrink-0 place-items-center rounded-xl", active ? "bg-gradient-to-br from-[#e8f2ff] to-[#d7e9ff] text-[#4a8df8]" : "bg-white/70 text-ink-faint")}>
+                  <Icon className="h-4 w-4" strokeWidth={2.1} />
+                </span>
+                <span className="text-[11.5px] font-bold text-ink">{item.label}</span>
               </span>
-              <span className="mt-2 block text-[11.5px] font-bold text-ink">{item.label}</span>
-              <span className="mt-0.5 block text-[9px] leading-4 text-ink-soft">{item.description}</span>
+              <span className="mt-1.5 block text-[9px] leading-4 text-ink-soft">{item.description}</span>
             </button>
           );
         })}
@@ -147,7 +150,7 @@ function MotionSection() {
       {mode === "gravity" && (
         <PercentSlider label="重力强度" description="越高，下落越快" value={settings.gravityStrength} min={0.1} max={2} onChange={(gravityStrength) => setSettings({ gravityStrength })} />
       )}
-      {mode !== "gravity" && rigid && (
+      {mode === "space" && (
         <PercentSlider label="惯性强度" description="越高，松手后滑得越远" value={settings.inertiaStrength} min={0.2} max={2} onChange={(inertiaStrength) => setSettings({ inertiaStrength })} />
       )}
       {rigid && (

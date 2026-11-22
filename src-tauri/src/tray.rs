@@ -67,7 +67,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
             ),
             (
                 "desk",
-                CheckMenuItem::with_id(app, "mode-desk", "桌面", true, true, None::<&str>)?,
+                CheckMenuItem::with_id(app, "mode-desk", "滑冰", true, true, None::<&str>)?,
             ),
             (
                 "gravity",
