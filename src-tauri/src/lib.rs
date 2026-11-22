@@ -1,11 +1,24 @@
+//! 贴纸宝宝
+//!
+//! 窗口结构：
+//! - `main`        主界面（贴纸库、创建、桌面、玩法、设置）
+//! - `pet`         置顶悬浮层：置顶贴纸 + 全屏特效 / 恶作剧 / 屏幕扰动
+//! - `pet-desktop` 桌面层：取消置顶的贴纸
+//!
+//! 主界面通过 `sb://cmd` 事件向悬浮层发送玩法指令（见 `src/shared/protocol.ts`），
+//! 贴纸摆放与设置通过前端共享状态同步。
+
+mod capture;
+mod desktop;
 mod overlay;
 mod platform;
-mod tray;
 mod sticker_creation;
+mod tray;
+mod window_fx;
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use tauri::{AppHandle, Emitter, Manager};
-use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, ShortcutState};
+use tauri::{AppHandle, Emitter, Manager, RunEvent};
+use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 static MAIN_SHOWN: AtomicBool = AtomicBool::new(false);
 
@@ -25,98 +38,63 @@ fn show_main_window(app: AppHandle) {
 }
 
 #[tauri::command]
-fn overlay_ready(app: AppHandle) {
-    overlay::ready(&app);
-}
-
-#[tauri::command]
-fn set_overlay_rects(
-    window: tauri::WebviewWindow,
-    rects: Vec<overlay::RegionRect>,
-    scale: f64,
-    menu_open: Option<bool>,
-) {
-    overlay::set_rects(&window, rects, scale, menu_open.unwrap_or(false));
-}
-
-#[tauri::command]
-fn set_overlay_dragging(window: tauri::WebviewWindow, dragging: bool) {
-    overlay::set_dragging(&window, dragging);
-}
-
-#[tauri::command]
-fn set_overlay_passthrough(app: AppHandle, enabled: bool) {
-    overlay::set_passthrough(&app, enabled);
-}
-
-#[tauri::command]
-fn set_overlay_visible(app: AppHandle, visible: bool) {
-    overlay::set_visible(&app, visible);
-}
-
-#[tauri::command]
 fn quit_app(app: AppHandle) {
     app.exit(0);
 }
 
-#[tauri::command]
-fn overlay_cursor(app: AppHandle) -> crate::platform::hit_test::CursorInfo {
-    crate::platform::hit_test::cursor_info(&app)
+/// 一键清场：停止所有特效 / 恶作剧 / 扰动，还原被移动的窗口和桌面图标
+pub fn panic_clear(app: &AppHandle) {
+    window_fx::cancel_all();
+    desktop::restore();
+    let _ = app.emit("sb://panic", ());
 }
 
 #[tauri::command]
-fn overlay_debug(app: AppHandle) -> Result<serde_json::Value, String> {
-    let window = app
-        .get_webview_window(overlay::PET_LABEL)
-        .ok_or_else(|| "pet layer not created".to_string())?;
-    let scale = window.scale_factor().map_err(|error| error.to_string())?;
-    let origin = window.outer_position().map_err(|error| error.to_string())?;
-    let outer = window.outer_size().map_err(|error| error.to_string())?;
-    let inner = window.inner_size().map_err(|error| error.to_string())?;
-    let cursor = window.cursor_position().ok();
-    let (visible, passthrough, dragging) = overlay::debug_flags();
-    Ok(serde_json::json!({
-        "scale": scale,
-        "origin": [origin.x, origin.y],
-        "outerSize": [outer.width, outer.height],
-        "innerSize": [inner.width, inner.height],
-        "cursor": cursor.map(|point| [point.x, point.y]),
-        "visible": visible,
-        "passthrough": passthrough,
-        "dragging": dragging,
-    }))
+fn clear_all(app: AppHandle) {
+    panic_clear(&app);
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let lock_key = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyP);
+    let panic_key = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyQ);
+    let toggle_key = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::F12);
+
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, shortcut, event| {
-                    if event.state == ShortcutState::Pressed
-                        && shortcut.matches(Modifiers::CONTROL | Modifiers::ALT, Code::KeyP)
-                    {
+                .with_handler(move |app, shortcut, event| {
+                    if event.state != ShortcutState::Pressed {
+                        return;
+                    }
+                    if shortcut == &lock_key {
                         let _ = app.emit("shortcut:toggle-passthrough", ());
+                    } else if shortcut == &panic_key {
+                        panic_clear(app);
+                    } else if shortcut == &toggle_key {
+                        overlay::toggle_visible(app);
                     }
                 })
                 .build(),
         )
-        .setup(|app| {
-            // A second instance or another app may already own the shortcut.
-            // Failing to grab it must not prevent the pet from starting.
-            if let Err(error) = app.global_shortcut().register("ctrl+alt+p") {
-                eprintln!("[deskpet] global shortcut unavailable: {error}");
+        .manage(overlay::OverlayState::default())
+        .setup(move |app| {
+            // 快捷键可能被其他程序占用：逐个注册，失败只记录、不中断启动
+            for key in [lock_key, panic_key, toggle_key] {
+                if let Err(error) = app.global_shortcut().register(key) {
+                    eprintln!("[sticker-baby] 快捷键 {key:?} 注册失败: {error}");
+                }
             }
             let handle = app.handle().clone();
             overlay::create(&handle)?;
-            overlay::start_hit_test(handle.clone());
+            overlay::spawn_cursor_tracker(handle.clone());
 
             if let Some(main) = app.get_webview_window("main") {
                 let window = main.clone();
                 main.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        // Closing the workspace keeps the pets alive on the desktop.
+                        // 关闭主界面只收进托盘，贴纸继续留在桌面上
                         api.prevent_close();
                         let _ = window.hide();
                     }
@@ -125,8 +103,7 @@ pub fn run() {
 
             tray::create(&handle)?;
 
-            // Safety net: never leave the app running with an invisible workspace
-            // if the webview failed to report readiness.
+            // 兜底：主界面没有上报就绪时也要显示出来，避免应用“隐形”运行
             let fallback = handle.clone();
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_secs(3));
@@ -134,27 +111,38 @@ pub fn run() {
                     show_main_window(fallback);
                 }
             });
-
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             main_ready,
             show_main_window,
-            overlay_ready,
-            set_overlay_rects,
-            set_overlay_dragging,
-            set_overlay_passthrough,
-            set_overlay_visible,
             quit_app,
+            clear_all,
             tray::sync_tray_state,
-            overlay_cursor,
+            overlay::overlay_set_interactive,
+            overlay::overlay_set_monitor,
+            overlay::overlay_info,
+            overlay::list_monitors,
+            capture::capture_screen,
+            window_fx::window_fx,
+            window_fx::window_fx_cancel,
+            desktop::desktop_foreground,
+            desktop::desktop_icons,
             sticker_creation::save_created_sticker,
+            sticker_creation::save_created_video,
             sticker_creation::list_created_stickers,
             sticker_creation::delete_created_sticker,
             sticker_creation::prepare_cutout_model,
             sticker_creation::cutout_cpu,
-            overlay_debug
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running DeskPet");
+        .build(tauri::generate_context!())
+        .expect("error while building 贴纸宝宝");
+
+    app.run(|_app, event| {
+        if let RunEvent::Exit = event {
+            // 退出时还原一切系统级改动
+            window_fx::cancel_all();
+            desktop::restore();
+        }
+    });
 }

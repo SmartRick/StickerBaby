@@ -3,12 +3,12 @@ use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager, Wry};
 
-use crate::{overlay, show_main_window};
+use crate::{panic_clear, show_main_window};
 
 struct TrayControls {
     visible: CheckMenuItem<Wry>,
     locked: CheckMenuItem<Wry>,
-    modes: [(&'static str, CheckMenuItem<Wry>); 3],
+    modes: [(&'static str, CheckMenuItem<Wry>); 4],
 }
 
 impl TrayControls {
@@ -43,8 +43,10 @@ pub fn sync_tray_state(app: AppHandle, settings: TraySettings) -> Result<(), Str
 
 pub fn create(app: &AppHandle) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "打开主界面", true, None::<&str>)?;
-    let library = MenuItem::with_id(app, "library", "贴纸仓库", true, None::<&str>)?;
+    let library = MenuItem::with_id(app, "library", "贴纸库", true, None::<&str>)?;
+    let effects = MenuItem::with_id(app, "effects", "全屏特效", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "偏好设置", true, None::<&str>)?;
+    let clear = MenuItem::with_id(app, "clear", "一键清场（Ctrl+Alt+Q）", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "退出贴纸宝宝", true, None::<&str>)?;
     let workspace_separator = PredefinedMenuItem::separator(app)?;
     let quit_separator = PredefinedMenuItem::separator(app)?;
@@ -61,7 +63,11 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         modes: [
             (
                 "float",
-                CheckMenuItem::with_id(app, "mode-float", "悬浮", true, true, None::<&str>)?,
+                CheckMenuItem::with_id(app, "mode-float", "悬浮", true, false, None::<&str>)?,
+            ),
+            (
+                "desk",
+                CheckMenuItem::with_id(app, "mode-desk", "桌面", true, true, None::<&str>)?,
             ),
             (
                 "gravity",
@@ -81,6 +87,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
             &controls.modes[0].1,
             &controls.modes[1].1,
             &controls.modes[2].1,
+            &controls.modes[3].1,
         ],
     )?;
     let menu = Menu::with_items(
@@ -88,11 +95,13 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         &[
             &open,
             &library,
+            &effects,
             &settings,
             &workspace_separator,
             &controls.visible,
             &controls.locked,
             &modes,
+            &clear,
             &quit_separator,
             &quit,
         ],
@@ -109,18 +118,18 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
     builder
         .on_menu_event(|app, event| match event.id().as_ref() {
             "open" => show_main_window(app.clone()),
-            page @ ("library" | "settings") => {
+            page @ ("library" | "effects" | "settings") => {
                 let _ = app.emit_to("main", "tray:navigate", page);
                 show_main_window(app.clone());
             }
             "toggle" => {
-                let visible = overlay::toggle_visible(app);
-                let _ = app.emit_to("main", "tray:toggle-overlay", visible);
+                let _ = app.emit_to("main", "tray:toggle-overlay", ());
             }
+            "clear" => panic_clear(app),
             "passthrough" => {
                 let _ = app.emit_to("main", "shortcut:toggle-passthrough", ());
             }
-            mode @ ("mode-float" | "mode-gravity" | "mode-space") => {
+            mode @ ("mode-float" | "mode-desk" | "mode-gravity" | "mode-space") => {
                 let mode = &mode["mode-".len()..];
                 let _ = app.state::<TrayControls>().set_mode(mode);
                 let _ = app.emit_to("main", "tray:sticker-mode", mode);

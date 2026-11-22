@@ -1,100 +1,40 @@
-//! Click-through flag for the sticker overlay.
-//!
-//! On Windows `WS_EX_TRANSPARENT` alone does not let clicks through a top-level
-//! window; the combination `WS_EX_TRANSPARENT | WS_EX_LAYERED` does.
-//! `WS_EX_LAYERED` is applied once and never removed; only `WS_EX_TRANSPARENT`
-//! is toggled as the cursor enters/leaves an interactive sticker.
-//!
-//! The window is never clipped by a region. A moving window region lags behind
-//! the rendered stickers and tears their edges, so the canvas always paints
-//! whole and only the click-through flag flips.
+//! 悬浮层窗口样式：点击穿透、不抢焦点、关闭 WebView2 默认菜单。
 
-#[cfg(target_os = "windows")]
-pub fn set(window: &tauri::WebviewWindow, through: bool) -> Result<(), String> {
-    use windows_sys::Win32::Foundation::HWND;
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetWindowLongPtrW, SetLayeredWindowAttributes, SetWindowLongPtrW, GWL_EXSTYLE, LWA_ALPHA,
-        WS_EX_APPWINDOW, WS_EX_LAYERED, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
-    };
-
-    let hwnd = window.hwnd().map_err(|error| error.to_string())?.0 as HWND;
+/// 切换鼠标穿透（WS_EX_TRANSPARENT），同时确保悬浮层“不打扰”其他程序：
+///
+/// - 始终保留 WS_EX_LAYERED，并设置 LWA_ALPHA = 254。不带 layered 的全屏窗口会被
+///   Chromium 系浏览器（Chrome / Edge / Electron）的遮挡检测判定为不透明，页面进入 hidden，
+///   正在播放的视频被暂停；Chromium 把 alpha < 255 的 layered 窗口视为半透明，不计入遮挡
+///   （254 肉眼无差异）。
+/// - 每次都重新加上 WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW 并去掉 WS_EX_APPWINDOW：
+///   tao 在 show / skip_taskbar 等操作时会重置扩展样式，导致点击贴纸时抢走前台焦点。
+#[cfg(windows)]
+pub fn set(window: &tauri::WebviewWindow, through: bool) {
+    use windows::Win32::Foundation::{COLORREF, HWND};
+    use windows::Win32::UI::WindowsAndMessaging::*;
+    let Ok(h) = window.hwnd() else { return };
+    let hwnd = HWND(h.0 as _);
     unsafe {
-        let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-        // Chromium excludes tool windows from native occlusion calculations.
-        // Keep the layered/tool-window role while interactive, otherwise a
-        // transparent fullscreen canvas looks opaque and freezes the app below.
-        let mut next =
-            (style | (WS_EX_LAYERED | WS_EX_TOOLWINDOW) as isize) & !(WS_EX_APPWINDOW as isize);
+        let mut ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        ex |= (WS_EX_LAYERED.0 | WS_EX_NOACTIVATE.0 | WS_EX_TOOLWINDOW.0) as isize;
+        ex &= !(WS_EX_APPWINDOW.0 as isize);
         if through {
-            next |= WS_EX_TRANSPARENT as isize;
+            ex |= WS_EX_TRANSPARENT.0 as isize;
         } else {
-            next &= !(WS_EX_TRANSPARENT as isize);
+            ex &= !(WS_EX_TRANSPARENT.0 as isize);
         }
-        if next != style {
-            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, next);
-            // A layered window without explicit attributes is in an undefined
-            // composition state; declare full alpha so DWM always composites.
-            let _ = SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
-        }
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+        let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 254, LWA_ALPHA);
     }
-    Ok(())
 }
 
-#[cfg(target_os = "macos")]
-pub fn set(window: &tauri::WebviewWindow, through: bool) -> Result<(), String> {
-    window
-        .set_ignore_cursor_events(through)
-        .map_err(|error| error.to_string())
+#[cfg(not(windows))]
+pub fn set(window: &tauri::WebviewWindow, through: bool) {
+    let _ = window.set_ignore_cursor_events(through);
 }
 
-#[cfg(not(any(target_os = "windows", target_os = "macos")))]
-pub fn set(window: &tauri::WebviewWindow, through: bool) -> Result<(), String> {
-    window
-        .set_ignore_cursor_events(through)
-        .map_err(|error| error.to_string())
-}
-
-#[cfg(target_os = "windows")]
-pub fn is_through(window: &tauri::WebviewWindow) -> bool {
-    use windows_sys::Win32::Foundation::HWND;
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetWindowLongPtrW, GWL_EXSTYLE, WS_EX_TRANSPARENT,
-    };
-    let Ok(handle) = window.hwnd() else {
-        return false;
-    };
-    let style = unsafe { GetWindowLongPtrW(handle.0 as HWND, GWL_EXSTYLE) };
-    style & (WS_EX_TRANSPARENT as isize) != 0
-}
-
-#[cfg(not(target_os = "windows"))]
-pub fn is_through(_window: &tauri::WebviewWindow) -> bool {
-    false
-}
-
-#[cfg(target_os = "windows")]
-pub fn needs_repair(window: &tauri::WebviewWindow, through: bool) -> bool {
-    use windows_sys::Win32::Foundation::HWND;
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetWindowLongPtrW, GWL_EXSTYLE, WS_EX_APPWINDOW, WS_EX_LAYERED, WS_EX_TOOLWINDOW,
-    };
-    let Ok(handle) = window.hwnd() else {
-        return false;
-    };
-    let style = unsafe { GetWindowLongPtrW(handle.0 as HWND, GWL_EXSTYLE) };
-    let required = (WS_EX_LAYERED | WS_EX_TOOLWINDOW) as isize;
-    style & required != required
-        || style & WS_EX_APPWINDOW as isize != 0
-        || is_through(window) != through
-}
-
-#[cfg(not(target_os = "windows"))]
-pub fn needs_repair(_window: &tauri::WebviewWindow, _through: bool) -> bool {
-    false
-}
-
-/// Disable WebView2's built-in browser menu (back / reload / save as / print).
-#[cfg(target_os = "windows")]
+/// 关闭 WebView2 自带的浏览器菜单（后退 / 刷新 / 另存为 / 打印）
+#[cfg(windows)]
 pub fn disable_default_context_menu(window: &tauri::WebviewWindow) {
     let _ = window.with_webview(|webview| unsafe {
         let controller = webview.controller();
@@ -106,45 +46,22 @@ pub fn disable_default_context_menu(window: &tauri::WebviewWindow) {
     });
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(windows))]
 pub fn disable_default_context_menu(_window: &tauri::WebviewWindow) {}
 
-/// Force a repaint after z-order or style changes.
-#[cfg(target_os = "windows")]
-pub fn redraw(window: &tauri::WebviewWindow) {
-    use windows_sys::Win32::Foundation::HWND;
-    use windows_sys::Win32::Graphics::Gdi::{
-        RedrawWindow, RDW_ALLCHILDREN, RDW_FRAME, RDW_INVALIDATE, RDW_UPDATENOW,
-    };
-    let Ok(handle) = window.hwnd() else {
-        return;
-    };
-    unsafe {
-        RedrawWindow(
-            handle.0 as HWND,
-            std::ptr::null(),
-            std::ptr::null_mut(),
-            RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW | RDW_FRAME,
-        );
-    }
-}
-
-#[cfg(not(target_os = "windows"))]
-pub fn redraw(_window: &tauri::WebviewWindow) {}
-
-/// Show the overlay without stealing keyboard focus from the foreground app.
-#[cfg(target_os = "windows")]
+/// 显示悬浮层但不抢走前台应用的键盘焦点
+#[cfg(windows)]
 pub fn show_no_activate(window: &tauri::WebviewWindow) -> Result<(), String> {
-    use windows_sys::Win32::Foundation::HWND;
-    use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_SHOWNOACTIVATE};
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_SHOWNOACTIVATE};
     let handle = window.hwnd().map_err(|error| error.to_string())?;
     unsafe {
-        ShowWindow(handle.0 as HWND, SW_SHOWNOACTIVATE);
+        let _ = ShowWindow(HWND(handle.0 as _), SW_SHOWNOACTIVATE);
     }
     Ok(())
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(windows))]
 pub fn show_no_activate(window: &tauri::WebviewWindow) -> Result<(), String> {
     window.show().map_err(|error| error.to_string())
 }

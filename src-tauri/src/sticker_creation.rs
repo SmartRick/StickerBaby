@@ -25,6 +25,12 @@ pub struct CreatedSticker {
     id: String,
     name: String,
     path: PathBuf,
+    /// 缺省为图片；"video" 为视频贴纸
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    media: Option<String>,
+    /// 视频绿幕抠像参数（前端 ChromaKey），原样保存
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    chroma: Option<serde_json::Value>,
 }
 
 fn ensure_creator(window: &WebviewWindow) -> Result<(), String> {
@@ -109,6 +115,8 @@ pub async fn save_created_sticker(
             id: id.clone(),
             name,
             path: root.join(&id).join(filename),
+            media: None,
+            chroma: None,
         };
         let pending = tempfile::tempdir_in(&root).map_err(|error| error.to_string())?;
         fs::write(pending.path().join(filename), bytes).map_err(|error| error.to_string())?;
@@ -118,6 +126,86 @@ pub async fn save_created_sticker(
         Ok(saved)
     })
     .await
+}
+
+const MAX_VIDEO_BYTES: usize = 200 * 1024 * 1024;
+
+/// 导入视频贴纸。请求体为原始视频字节；名称、扩展名、抠像参数通过请求头传入
+/// （`x-name` 为 URI 编码的名称，`x-ext` 为 mp4/webm/mov，`x-chroma` 为 JSON 或空）。
+#[tauri::command]
+pub async fn save_created_video(
+    app: AppHandle,
+    window: WebviewWindow,
+    request: Request<'_>,
+) -> Result<CreatedSticker, String> {
+    ensure_creator(&window)?;
+    let header = |key: &str| {
+        request
+            .headers()
+            .get(key)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned)
+    };
+    let name = header("x-name")
+        .map(|raw| percent_decode(&raw))
+        .unwrap_or_default()
+        .trim()
+        .to_owned();
+    if name.is_empty() || name.chars().count() > 60 || name.chars().any(char::is_control) {
+        return Err("请输入 1 到 60 个字符的贴纸名称。".into());
+    }
+    let ext = header("x-ext").unwrap_or_default().to_ascii_lowercase();
+    if !["mp4", "webm", "mov"].contains(&ext.as_str()) {
+        return Err("仅支持 MP4、WebM 和 MOV 视频。".into());
+    }
+    let chroma = header("x-chroma")
+        .filter(|raw| !raw.is_empty())
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok());
+    let bytes = raw_body(request.body())?;
+    if bytes.is_empty() || bytes.len() > MAX_VIDEO_BYTES {
+        return Err("请选择不超过 200 MB 的视频。".into());
+    }
+    let bytes = bytes.to_vec();
+    background(move || {
+        let root = app_directory(&app, "stickers")?;
+        let id = format!("created-{}", uuid::Uuid::new_v4());
+        let filename = format!("video.{ext}");
+        let saved = CreatedSticker {
+            id: id.clone(),
+            name,
+            path: root.join(&id).join(&filename),
+            media: Some("video".into()),
+            chroma,
+        };
+        let pending = tempfile::tempdir_in(&root).map_err(|error| error.to_string())?;
+        fs::write(pending.path().join(&filename), bytes).map_err(|error| error.to_string())?;
+        let meta = serde_json::to_vec(&saved).map_err(|error| error.to_string())?;
+        fs::write(pending.path().join("sticker.json"), meta).map_err(|error| error.to_string())?;
+        fs::rename(pending.path(), root.join(&id)).map_err(|error| error.to_string())?;
+        Ok(saved)
+    })
+    .await
+}
+
+fn percent_decode(raw: &str) -> String {
+    let bytes = raw.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Some(value) = std::str::from_utf8(&bytes[i + 1..i + 3])
+                .ok()
+                .and_then(|hex| u8::from_str_radix(hex, 16).ok())
+            {
+                out.push(value);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 #[tauri::command]
