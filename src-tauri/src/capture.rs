@@ -1,4 +1,4 @@
-//! 屏幕截取（GDI BitBlt，取 DWM 合成后的画面，包含悬浮层自身内容）。
+//! 屏幕截取（Windows：GDI BitBlt，取 DWM 合成后的画面；macOS：CGDisplayCreateImage。都包含悬浮层自身内容）。
 //! 返回原始 BGRA 字节：前 8 字节为 width/height（u32 LE），前端直接上传为 WebGL 纹理，
 //! 避免 PNG 编解码开销（1080p 约 8MB，走 Tauri 二进制 IPC）。
 
@@ -8,9 +8,25 @@ use tauri::State;
 
 #[tauri::command]
 pub async fn capture_screen(state: State<'_, OverlayState>) -> Result<Response, String> {
-    let r = state.info.lock().unwrap().rect;
+    let info = *state.info.lock().unwrap();
+    let r = info.rect;
+    #[cfg(target_os = "macos")]
+    let bytes = grab_macos(r.x as f64 / info.scale, r.y as f64 / info.scale)?;
+    #[cfg(not(target_os = "macos"))]
     let bytes = grab(r.x, r.y, r.width as i32, r.height as i32)?;
     Ok(Response::new(bytes))
+}
+
+/// macOS：截取悬浮层所在的整块显示器（需要“屏幕录制”权限），输出格式与 Windows 相同
+#[cfg(target_os = "macos")]
+fn grab_macos(x: f64, y: f64) -> Result<Vec<u8>, String> {
+    // 显示器原点（点）往里偏 1 点，避免落在相邻显示器的边界上
+    let (w, h, pixels) = crate::platform::macos::capture_display_at(x + 1.0, y + 1.0)?;
+    let mut out = Vec::with_capacity(pixels.len() + 8);
+    out.extend_from_slice(&w.to_le_bytes());
+    out.extend_from_slice(&h.to_le_bytes());
+    out.extend_from_slice(&pixels);
+    Ok(out)
 }
 
 #[cfg(windows)]
@@ -51,7 +67,7 @@ fn grab(x: i32, y: i32, w: i32, h: i32) -> Result<Vec<u8>, String> {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn grab(_x: i32, _y: i32, _w: i32, _h: i32) -> Result<Vec<u8>, String> {
     Err("capture not supported on this platform yet".into())
 }
