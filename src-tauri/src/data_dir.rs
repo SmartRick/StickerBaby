@@ -1,6 +1,6 @@
 //! 数据存储（绿色便携）。
 //!
-//! 优先 exe 同级的 `data\`：自创贴纸、AI 模型、WebView 配置（设置与贴纸摆放的
+//! Windows 优先 exe 同级的 `data\`（macOS 见 `portable_root`）：自创贴纸、AI 模型、WebView 配置（设置与贴纸摆放的
 //! localStorage）全部跟着软件走，卸载重装不丢、不占系统盘；目录写不进去
 //! （例如装在 Program Files）时自动退回系统的 AppData\Local。
 //!
@@ -26,10 +26,17 @@ fn app_local_data(app: &AppHandle) -> PathBuf {
         .unwrap_or_else(|_| current_exe_dir())
 }
 
-/// 便携根目录；不可写返回 None
+/// 便携根目录；不可写返回 None。
+///
+/// macOS 不做便携：exe 在 `.app/Contents/MacOS` 里，往包内写数据会破坏签名，
+/// 从 DMG / 隔离区（App Translocation）运行时也是只读的。统一用
+/// `~/Library/Application Support/<identifier>`，WebView 走系统默认数据存储（同进程共享）。
 fn portable_root() -> Option<&'static PathBuf> {
     PORTABLE
         .get_or_init(|| {
+            if cfg!(target_os = "macos") {
+                return None;
+            }
             let root = current_exe_dir().join("data");
             let writable = fs::create_dir_all(root.join("stickers")).is_ok()
                 && fs::create_dir_all(root.join("models")).is_ok()

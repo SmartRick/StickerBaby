@@ -41,12 +41,21 @@ pub fn sync_tray_state(app: AppHandle, settings: TraySettings) -> Result<(), Str
     update().map_err(|error| error.to_string())
 }
 
+/// 快捷键前缀，与 lib.rs 注册的组合键一致
+const SHORTCUT_PREFIX: &str = if cfg!(target_os = "macos") { "⌘⌥" } else { "Ctrl+Alt+" };
+
 pub fn create(app: &AppHandle) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "打开主界面", true, None::<&str>)?;
     let library = MenuItem::with_id(app, "library", "贴纸库", true, None::<&str>)?;
     let effects = MenuItem::with_id(app, "effects", "全屏特效", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "偏好设置", true, None::<&str>)?;
-    let clear = MenuItem::with_id(app, "clear", "一键清场（Ctrl+Alt+Q）", true, None::<&str>)?;
+    let clear = MenuItem::with_id(
+        app,
+        "clear",
+        format!("一键清场（{SHORTCUT_PREFIX}Q）"),
+        true,
+        None::<&str>,
+    )?;
     let quit = MenuItem::with_id(app, "quit", "退出贴纸宝宝", true, None::<&str>)?;
     let workspace_separator = PredefinedMenuItem::separator(app)?;
     let quit_separator = PredefinedMenuItem::separator(app)?;
@@ -55,7 +64,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         locked: CheckMenuItem::with_id(
             app,
             "passthrough",
-            "全局锁定（Ctrl+Alt+P）",
+            format!("全局锁定（{SHORTCUT_PREFIX}P）"),
             true,
             false,
             None::<&str>,

@@ -57,9 +57,15 @@ fn clear_all(app: AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let lock_key = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyP);
-    let panic_key = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyQ);
-    let toggle_key = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::F12);
+    // Windows：Ctrl+Alt；macOS：⌘⌥（与前端 src/lib/shortcuts.ts 保持一致）
+    let mods = if cfg!(target_os = "macos") {
+        Modifiers::SUPER | Modifiers::ALT
+    } else {
+        Modifiers::CONTROL | Modifiers::ALT
+    };
+    let lock_key = Shortcut::new(Some(mods), Code::KeyP);
+    let panic_key = Shortcut::new(Some(mods), Code::KeyQ);
+    let toggle_key = Shortcut::new(Some(mods), Code::F12);
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -103,8 +109,12 @@ pub fn run() {
             .decorations(false)
             .transparent(true)
             .shadow(false)
-            .visible(false)
-            .drag_and_drop(false);
+            .visible(false);
+            // drag_and_drop 只有 Windows 版 tauri 提供
+            #[cfg(windows)]
+            {
+                main = main.drag_and_drop(false);
+            }
             if let Some(dir) = data_dir::webview_dir() {
                 main = main.data_directory(dir);
             }
@@ -159,11 +169,15 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building 贴纸宝宝");
 
-    app.run(|_app, event| {
-        if let RunEvent::Exit = event {
+    app.run(|app, event| match event {
+        RunEvent::Exit => {
             // 退出时还原一切系统级改动
             window_fx::cancel_all();
             desktop::restore();
         }
+        // macOS：点击 Dock 图标时找回被收起的主界面
+        #[cfg(target_os = "macos")]
+        RunEvent::Reopen { .. } => show_main_window(app.clone()),
+        _ => {}
     });
 }
