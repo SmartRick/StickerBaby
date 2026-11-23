@@ -8,3 +8,4 @@
 - [image-assets.md](image-assets.md) — 贴纸裁剪与 WebP 流程、创建贴纸抠图基准和 Rust 原生推理验证
 - [windows-packaging.md](windows-packaging.md) — 中文产品名触发 WiX LGHT0311 时的打包配置与产物验证
 - [overlay-engine.md](overlay-engine.md) — 悬浮层引擎结构、事件监听与置顶的坑、调试方法
+- [macos-compat.md](macos-compat.md) — macOS 坐标换算、悬浮层层级与焦点归还、截屏 / 辅助功能权限、onnxruntime dylib
