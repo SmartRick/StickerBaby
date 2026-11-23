@@ -411,7 +411,7 @@ pub async fn prepare_cutout_model(
     .await
 }
 
-#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+#[cfg(any(all(target_os = "windows", target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64")))]
 fn isnet_alpha(app: AppHandle, input: Vec<u8>) -> Result<Vec<u8>, String> {
     use ort::{session::Session, value::Tensor};
     use std::sync::OnceLock;
@@ -425,7 +425,11 @@ fn isnet_alpha(app: AppHandle, input: Vec<u8>) -> Result<Vec<u8>, String> {
         let dll = app
             .path()
             .resolve(
-                "resources/onnxruntime/onnxruntime.dll",
+                if cfg!(windows) {
+                    "resources/onnxruntime/onnxruntime.dll"
+                } else {
+                    "resources/onnxruntime-macos/libonnxruntime.dylib"
+                },
                 BaseDirectory::Resource,
             )
             .map_err(|error| error.to_string())?;
@@ -468,7 +472,7 @@ pub async fn cutout_cpu(
     request: Request<'_>,
 ) -> Result<Response, String> {
     ensure_creator(&window)?;
-    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+    #[cfg(any(all(target_os = "windows", target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64")))]
     {
         let data = raw_body(request.body())?;
         if data.len() != 3 * 1024 * 1024 * 4 {
@@ -477,7 +481,7 @@ pub async fn cutout_cpu(
         let input = data.to_vec();
         background(move || isnet_alpha(app, input).map(Response::new)).await
     }
-    #[cfg(not(all(target_os = "windows", target_arch = "x86_64")))]
+    #[cfg(not(any(all(target_os = "windows", target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64"))))]
     {
         let _ = (app, request);
         Err("当前系统无法使用 CPU 抠图。".into())
