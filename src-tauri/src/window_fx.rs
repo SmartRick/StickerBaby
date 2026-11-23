@@ -6,6 +6,7 @@
 //! - 只移动位置（SWP_NOSIZE | SWP_NOACTIVATE），不改变大小、层级和焦点；
 //! - 跳过自身窗口、最小化 / 隐藏 / cloaked（其他虚拟桌面、UWP 挂起）窗口、桌面和任务栏；
 //! - 管理员权限窗口受 UIPI 限制无法移动，调用失败时静默忽略。
+//! - macOS 通过辅助功能（AX）API 移动窗口，需要用户在“辅助功能”里授权；坐标单位是点。
 
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -63,8 +64,12 @@ static CANCEL_GEN: AtomicU64 = AtomicU64::new(0);
 
 #[tauri::command]
 pub fn window_fx(req: FxRequest) -> Result<usize, String> {
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     {
+        #[cfg(target_os = "macos")]
+        if !crate::platform::macos::accessibility_trusted(true) {
+            return Err("需要辅助功能权限：系统设置 › 隐私与安全性 › 辅助功能，允许贴纸宝宝".into());
+        }
         let targets = win::collect_targets(req.target);
         let count = targets.len();
         if count == 0 {
@@ -85,7 +90,7 @@ pub fn window_fx(req: FxRequest) -> Result<usize, String> {
         std::thread::spawn(move || animate(req, run, gen, items));
         Ok(count)
     }
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = req;
         Err("window fx not supported on this platform yet".into())
@@ -101,14 +106,16 @@ pub fn window_fx_cancel() {
 pub fn cancel_all() {
     CANCEL_GEN.fetch_add(1, Ordering::SeqCst);
     let mut reg = registry().lock().unwrap();
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     for (h, (x, y, _)) in reg.iter() {
         win::move_to(*h, *x, *y);
     }
     reg.clear();
+    #[cfg(target_os = "macos")]
+    crate::platform::macos::ax_release_all();
 }
 
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
 fn animate(req: FxRequest, run: u64, gen: u64, items: Vec<(isize, i32, i32)>) {
     let dur = Duration::from_millis(req.duration_ms.clamp(100, 10_000));
     let amp = 6.0 + 60.0 * req.intensity.clamp(0.0, 1.0);
@@ -153,7 +160,7 @@ fn animate(req: FxRequest, run: u64, gen: u64, items: Vec<(isize, i32, i32)>) {
         };
         for &(h, x, y) in &items {
             if owned_by(h, run) {
-                #[cfg(windows)]
+                #[cfg(any(windows, target_os = "macos"))]
                 win::move_to(h, x + dx.round() as i32, y + dy.round() as i32);
             }
         }
@@ -163,9 +170,11 @@ fn animate(req: FxRequest, run: u64, gen: u64, items: Vec<(isize, i32, i32)>) {
     let mut reg = registry().lock().unwrap();
     for &(h, x, y) in &items {
         if reg.get(&h).map(|e| e.2) == Some(run) {
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "macos"))]
             win::move_to(h, x, y);
             reg.remove(&h);
+            #[cfg(target_os = "macos")]
+            crate::platform::macos::ax_release(h as u32);
         }
     }
 }
@@ -291,5 +300,33 @@ mod win {
                 }
             }
         }
+    }
+}
+
+/// macOS：窗口 id 为 CGWindowID，移动通过 AX 元素（platform::macos 里登记 / 释放）
+#[cfg(target_os = "macos")]
+mod win {
+    use super::FxTarget;
+    use crate::platform::macos;
+
+    /// AX 调用是跨进程 IPC，比 SetWindowPos 慢，少动几个窗口保证动画流畅
+    const MAX_WINDOWS: usize = 6;
+
+    pub fn window_pos(h: isize) -> Option<(i32, i32)> {
+        let (x, y) = macos::ax_window_pos(h as u32)?;
+        Some((x.round() as i32, y.round() as i32))
+    }
+
+    pub fn move_to(h: isize, x: i32, y: i32) {
+        macos::ax_move_to(h as u32, x as f64, y as f64);
+    }
+
+    /// movable_windows 已按 Z 序从前到后，第一个就是前台窗口
+    pub fn collect_targets(target: FxTarget) -> Vec<isize> {
+        let max = match target {
+            FxTarget::All => MAX_WINDOWS,
+            FxTarget::Foreground => 1,
+        };
+        macos::movable_windows(max).into_iter().map(|id| id as isize).collect()
     }
 }
