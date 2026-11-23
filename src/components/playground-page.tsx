@@ -9,6 +9,7 @@ import { useAppStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import type { WindowFxTarget } from "@/shared/protocol";
+import { shortcut } from "@/lib/shortcuts";
 
 /**
  * 玩法页（全屏特效 / 恶作剧 / 屏幕扰动 共用）：按业务分类展示玩法卡片，点卡片播放，
@@ -87,7 +88,7 @@ export function PlaygroundPage({ domain }: { domain: PlayDomain }) {
             disabled={domain !== "disturb" && domainRunning === 0}
             onClick={() => void stopAll()}
             className="pressable inline-flex h-9 items-center gap-1.5 rounded-full border border-[#ffd9de] bg-[#fff5f6] px-3.5 text-[10.5px] font-bold text-[#d8667a] hover:bg-[#ffeef0] disabled:opacity-40"
-            title="停止本页正在运行的玩法（Ctrl+Alt+Q 一键清场全部）"
+            title={`停止本页正在运行的玩法（${shortcut("Q")} 一键清场全部）`}
           >
             <Square className="h-3 w-3" fill="currentColor" />
             {domain === "disturb" ? "还原窗口" : "全部停止"}
@@ -118,7 +119,7 @@ export function PlaygroundPage({ domain }: { domain: PlayDomain }) {
         ))}
         <p className="flex items-center justify-center gap-1.5 pb-1 text-[9.5px] text-ink-faint">
           <Zap className="h-3 w-3" />
-          任何时候按 Ctrl+Alt+Q 一键清场{domain === "disturb" && " · 屏幕扰动期间显示的是冻结的截图，几秒后自动恢复"}
+          任何时候按 {shortcut("Q")} 一键清场{domain === "disturb" && " · 屏幕扰动期间显示的是冻结的截图，几秒后自动恢复"}
         </p>
       </div>
     </div>

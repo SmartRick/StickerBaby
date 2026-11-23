@@ -6,6 +6,7 @@ import { useUiStore } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { appWindow, inTauri } from "@/lib/tauri";
 import { useAppStore } from "@/lib/store";
+import { shortcut } from "@/lib/shortcuts";
 
 export function WindowBar() {
   const [maximized, setMaximized] = useState(false);
@@ -88,7 +89,7 @@ export function WindowBar() {
           <button
             type="button"
             onClick={() => void clearAll()}
-            title="一键清场（Ctrl+Alt+Q）"
+            title={`一键清场（${shortcut("Q")}）`}
             className="pressable inline-flex h-7 items-center gap-1.5 rounded-full border border-[#ffd9de] bg-[#fff5f6] px-3 text-[10.5px] font-bold text-[#d8667a] hover:bg-[#ffeef0]"
           >
             <Zap className="h-3 w-3" />

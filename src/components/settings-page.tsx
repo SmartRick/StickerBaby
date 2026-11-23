@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import {
   ArrowDown,
   Blend,
@@ -19,6 +19,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { SectionCard, SettingRow, ShortcutKey } from "@/components/setting-parts";
+import { SHORTCUT_MODIFIERS } from "@/lib/shortcuts";
 import { listMonitors, type MonitorDesc } from "@/lib/overlay-client";
 import {
   Dialog,
@@ -183,11 +184,7 @@ export function SettingsPage() {
               <p className="mt-0.5 text-[9.5px] text-ink-soft">锁定后忘了怎么关？按这个组合键</p>
             </div>
             <div className="flex items-center gap-1">
-              <ShortcutKey>Ctrl</ShortcutKey>
-              <span className="text-[9px] text-ink-faint">+</span>
-              <ShortcutKey>Alt</ShortcutKey>
-              <span className="text-[9px] text-ink-faint">+</span>
-              <ShortcutKey>P</ShortcutKey>
+              <ShortcutKeys keyName="P" />
             </div>
           </div>
           {[
@@ -200,11 +197,7 @@ export function SettingsPage() {
                 <p className="mt-0.5 text-[9.5px] text-ink-soft">{item.description}</p>
               </div>
               <div className="flex items-center gap-1">
-                <ShortcutKey>Ctrl</ShortcutKey>
-                <span className="text-[9px] text-ink-faint">+</span>
-                <ShortcutKey>Alt</ShortcutKey>
-                <span className="text-[9px] text-ink-faint">+</span>
-                <ShortcutKey>{item.key}</ShortcutKey>
+                <ShortcutKeys keyName={item.key} />
               </div>
             </div>
           ))}
@@ -429,5 +422,19 @@ function MonitorSection() {
         </div>
       )}
     </SectionCard>
+  );
+}
+
+/** 组合键按键帽：Ctrl + Alt + 键（macOS 为 ⌘ + ⌥ + 键） */
+function ShortcutKeys({ keyName }: { keyName: string }) {
+  return (
+    <>
+      {[...SHORTCUT_MODIFIERS, keyName].map((key, index) => (
+        <Fragment key={key}>
+          {index > 0 && <span className="text-[9px] text-ink-faint">+</span>}
+          <ShortcutKey>{key}</ShortcutKey>
+        </Fragment>
+      ))}
+    </>
   );
 }

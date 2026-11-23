@@ -28,6 +28,7 @@ import type { Sticker } from "@/lib/stickers";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import type { ChromaKey } from "@/shared/protocol";
+import { shortcut } from "@/lib/shortcuts";
 
 const MODES: Array<{ id: StickerMode; label: string; description: string; icon: typeof Wind }> = [
   { id: "float", label: "悬浮", description: "拖到哪停在哪，轻轻呼吸摇摆", icon: Sparkles },
@@ -197,7 +198,7 @@ function BehaviorSection() {
     <SectionCard icon={<MousePointer2 className="h-4 w-4" />} title="桌面行为" description="贴纸和其他应用的关系">
       <SettingRow
         title="全局锁定"
-        description="所有贴纸点击穿透、不能拖动。Ctrl+Alt+P 随时切换。"
+        description={`所有贴纸点击穿透、不能拖动。${shortcut("P")} 随时切换。`}
         icon={<LockKeyhole className="h-3.5 w-3.5" />}
         control={<Switch checked={settings.passthrough} onCheckedChange={() => toggleSetting("passthrough")} />}
       />

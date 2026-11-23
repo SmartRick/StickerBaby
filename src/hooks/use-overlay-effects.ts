@@ -3,6 +3,7 @@ import { STICKER_MODES, useAppStore, type StickerMode } from "@/lib/store";
 import { setOverlayMonitor, subscribeOverlayRuntime } from "@/lib/overlay-client";
 import { invokeSafe, onAppEvent } from "@/lib/tauri";
 import { toast } from "@/lib/toast";
+import { shortcut } from "@/lib/shortcuts";
 
 /**
  * 主界面与原生层的桥：托盘 / 全局快捷键 → 设置；设置 → 托盘勾选状态、悬浮层所在显示器。
@@ -26,7 +27,7 @@ export function useOverlayEffects() {
     const stopShortcut = onAppEvent("shortcut:toggle-passthrough", () => {
       const next = !useAppStore.getState().settings.passthrough;
       setSettings({ passthrough: next });
-      toast(next ? "已开启全局锁定 · 贴纸仍可见，点击会落到桌面；Ctrl+Alt+P 恢复" : "已退出全局锁定", next ? "warn" : "success");
+      toast(next ? `已开启全局锁定 · 贴纸仍可见，点击会落到桌面；${shortcut("P")} 恢复` : "已退出全局锁定", next ? "warn" : "success");
     });
     const stopTray = onAppEvent("tray:toggle-overlay", () => {
       setSettings({ overlayVisible: !useAppStore.getState().settings.overlayVisible });
