@@ -61,7 +61,17 @@ pub fn show_no_activate(window: &tauri::WebviewWindow) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(not(windows))]
+/// macOS：orderFrontRegardless 显示但不激活应用（必须在主线程）
+#[cfg(target_os = "macos")]
+pub fn show_no_activate(window: &tauri::WebviewWindow) -> Result<(), String> {
+    let ns = window.ns_window().map_err(|error| error.to_string())?;
+    let ns = ns as usize;
+    window
+        .run_on_main_thread(move || crate::platform::macos::order_front_no_activate(ns as _))
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn show_no_activate(window: &tauri::WebviewWindow) -> Result<(), String> {
     window.show().map_err(|error| error.to_string())
 }
