@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 use tauri::{
-    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State, WebviewUrl, WebviewWindow,
+    AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder,
 };
 
@@ -94,6 +94,12 @@ fn build_layer(app: &AppHandle, label: &'static str) -> tauri::Result<WebviewWin
         win.set_always_on_top(true)?;
     }
     click_through::disable_default_context_menu(&win);
+    #[cfg(target_os = "macos")]
+    if let Ok(ns) = win.ns_window() {
+        let id = crate::platform::macos::configure_overlay(ns, !desktop);
+        let slot = if desktop { &win::DESKTOP_ID } else { &win::FLOATING_ID };
+        slot.store(id, Ordering::SeqCst);
+    }
     Ok(win)
 }
 
@@ -126,8 +132,20 @@ fn place(app: &AppHandle, win: &WebviewWindow, index: usize) -> tauri::Result<()
     };
     let pos = *m.position();
     let size = *m.size();
-    win.set_position(PhysicalPosition::new(pos.x, pos.y))?;
-    win.set_size(PhysicalSize::new(size.width, size.height))?;
+    // 必须先改尺寸再定位：macOS 上 set_size 保持窗口左下角不动，
+    // 先定位再改尺寸会把窗口顶边推出屏幕（桌面层曾因此整体上移）
+    #[cfg(target_os = "macos")]
+    {
+        // 按目标屏自己的 scale 换算成点，跨不同缩放的显示器也不会算错
+        let s = m.scale_factor();
+        win.set_size(tauri::LogicalSize::new(size.width as f64 / s, size.height as f64 / s))?;
+        win.set_position(tauri::LogicalPosition::new(pos.x as f64 / s, pos.y as f64 / s))?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        win.set_size(tauri::PhysicalSize::new(size.width, size.height))?;
+        win.set_position(tauri::PhysicalPosition::new(pos.x, pos.y))?;
+    }
     let info = OverlayInfo {
         rect: Rect { x: pos.x, y: pos.y, width: size.width, height: size.height },
         scale: m.scale_factor(),
@@ -153,6 +171,13 @@ pub fn toggle_visible(app: &AppHandle) {
         }
     }
     let _ = app.emit("sb://overlay-hidden", hide);
+}
+
+impl OverlayState {
+    /// 任一悬浮层当前处于可点击状态（光标在贴纸 / 可交互对象上）
+    pub fn any_interactive(&self) -> bool {
+        self.interactive.lock().unwrap().values().any(|v| *v)
+    }
 }
 
 #[tauri::command]
@@ -220,15 +245,19 @@ struct CursorEvent {
 pub fn spawn_cursor_tracker(app: AppHandle) {
     std::thread::spawn(move || {
         let mut last: [Option<CursorEvent>; 2] = [None, None];
+        let mut focus = win::FocusGuard::default();
         loop {
             std::thread::sleep(Duration::from_millis(8));
-            let Some((cx, cy, down)) = win::read_cursor() else { continue };
             let info = *app.state::<OverlayState>().info.lock().unwrap();
+            let Some((cx, cy, down)) = win::read_cursor(info.scale) else { continue };
+            focus.tick(&app, down);
             let r = info.rect;
             let on_screen =
                 cx >= r.x && cy >= r.y && cx < r.x + r.width as i32 && cy < r.y + r.height as i32;
+            // 桌面层可见性每轮只算一次（macOS 上要枚举窗口列表，内部有节流）
+            let desktop_visible = on_screen && win::desktop_visible_at(&app, cx, cy, info.scale);
             for (i, label) in LABELS.iter().enumerate() {
-                let inside = on_screen && (i == 0 || win::desktop_visible_at(&app, cx, cy));
+                let inside = on_screen && (i == 0 || desktop_visible);
                 let ev = CursorEvent {
                     x: (cx - r.x) as f64 / info.scale,
                     y: (cy - r.y) as f64 / info.scale,
@@ -256,7 +285,8 @@ mod win {
         GetAncestor, GetClassNameW, GetCursorPos, WindowFromPoint, GA_ROOT,
     };
 
-    pub fn read_cursor() -> Option<(i32, i32, bool)> {
+    /// Windows 的 GetCursorPos 本身就是物理像素（进程 DPI aware），不需要 scale
+    pub fn read_cursor(_scale: f64) -> Option<(i32, i32, bool)> {
         let mut p = POINT::default();
         unsafe {
             GetCursorPos(&mut p).ok()?;
@@ -271,8 +301,15 @@ mod win {
         app.get_webview_window(label)?.hwnd().ok().map(|h| h.0 as isize)
     }
 
+    /// Windows 上悬浮层本就不抢焦点（WS_EX_NOACTIVATE），无需归还
+    #[derive(Default)]
+    pub struct FocusGuard;
+    impl FocusGuard {
+        pub fn tick(&mut self, _: &AppHandle, _: bool) {}
+    }
+
     /// 光标处最上层的顶层窗口是桌面本身、桌面层或置顶层时，桌面层可见
-    pub fn desktop_visible_at(app: &AppHandle, x: i32, y: i32) -> bool {
+    pub fn desktop_visible_at(app: &AppHandle, x: i32, y: i32, _scale: f64) -> bool {
         unsafe {
             let h = WindowFromPoint(POINT { x, y });
             if h.is_invalid() {
@@ -292,13 +329,107 @@ mod win {
 
 }
 
-#[cfg(not(windows))]
+/// macOS：光标坐标是“点”（左上角原点的全局坐标，与 CGDisplayBounds 同一坐标系）；
+/// tao 的显示器 position/size 是“点 × 该屏 scale”，乘上悬浮层所在屏的 scale 即可与 OverlayInfo.rect 对齐。
+#[cfg(target_os = "macos")]
+mod win {
+    use crate::platform::macos;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+    use tauri::{AppHandle, Manager};
+
+    /// 两层悬浮层的 CGWindowID（build_layer 时记录）
+    pub static FLOATING_ID: AtomicU32 = AtomicU32::new(0);
+    pub static DESKTOP_ID: AtomicU32 = AtomicU32::new(0);
+
+    pub fn read_cursor(scale: f64) -> Option<(i32, i32, bool)> {
+        let (x, y, down) = macos::cursor()?;
+        Some(((x * scale).round() as i32, (y * scale).round() as i32, down))
+    }
+
+    /// 枚举窗口列表约 0.5–2ms，不能每 8ms 做一次：同一位置 100ms 内、移动中 33ms 内复用结果
+    pub fn desktop_visible_at(_: &AppHandle, x: i32, y: i32, scale: f64) -> bool {
+        static CACHE: Mutex<Option<(Instant, i32, i32, bool)>> = Mutex::new(None);
+        let mut cache = CACHE.lock().unwrap();
+        if let Some((at, cx, cy, v)) = *cache {
+            let ttl = if (cx, cy) == (x, y) { 100 } else { 33 };
+            if at.elapsed() < Duration::from_millis(ttl) {
+                return v;
+            }
+        }
+        let v = macos::desktop_visible_at(
+            x as f64 / scale,
+            y as f64 / scale,
+            DESKTOP_ID.load(Ordering::SeqCst),
+            FLOATING_ID.load(Ordering::SeqCst),
+        );
+        *cache = Some((Instant::now(), x, y, v));
+        v
+    }
+
+    /// 点击贴纸会激活整个应用、抢走用户正在用的程序的键盘焦点（macOS 没有 WS_EX_NOACTIVATE）。
+    /// 记录点击前的前台应用：在悬浮层上按下、松开后若焦点被我们拿走、且用户没有转去主界面，就还回去。
+    #[derive(Default)]
+    pub struct FocusGuard {
+        /// 最近一次观察到的、不是自己的前台应用
+        other: Option<i32>,
+        last_poll: Option<Instant>,
+        was_down: bool,
+        /// 本次按下发生在悬浮层上，且按下前前台不是自己
+        restore: Option<i32>,
+    }
+
+    impl FocusGuard {
+        pub fn tick(&mut self, app: &AppHandle, down: bool) {
+            let own = std::process::id() as i32;
+            if !down && self.last_poll.map_or(true, |t| t.elapsed() >= Duration::from_millis(100)) {
+                self.last_poll = Some(Instant::now());
+                self.other = macos::frontmost_pid().filter(|pid| *pid != own);
+            }
+            if down && !self.was_down {
+                let on_overlay = app.state::<super::OverlayState>().any_interactive();
+                self.restore = if on_overlay { self.other } else { None };
+            }
+            if !down && self.was_down {
+                if let Some(pid) = self.restore.take() {
+                    schedule_restore(app.clone(), pid);
+                }
+            }
+            self.was_down = down;
+        }
+    }
+
+    fn schedule_restore(app: AppHandle, pid: i32) {
+        std::thread::spawn(move || {
+            // 等点击触发的动作（例如右键菜单里“打开主界面”）先落地
+            std::thread::sleep(Duration::from_millis(150));
+            let handle = app.clone();
+            let _ = app.run_on_main_thread(move || {
+                let main_focused = handle
+                    .get_webview_window("main")
+                    .map(|w| w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false))
+                    .unwrap_or(false);
+                if macos::self_is_active() && !main_focused {
+                    macos::activate_pid(pid);
+                }
+            });
+        });
+    }
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 mod win {
     use tauri::AppHandle;
-    pub fn read_cursor() -> Option<(i32, i32, bool)> {
+    pub fn read_cursor(_scale: f64) -> Option<(i32, i32, bool)> {
         None
     }
-    pub fn desktop_visible_at(_: &AppHandle, _: i32, _: i32) -> bool {
+    pub fn desktop_visible_at(_: &AppHandle, _: i32, _: i32, _: f64) -> bool {
         true
+    }
+    #[derive(Default)]
+    pub struct FocusGuard;
+    impl FocusGuard {
+        pub fn tick(&mut self, _: &AppHandle, _: bool) {}
     }
 }
